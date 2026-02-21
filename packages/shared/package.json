@@ -1,0 +1,20 @@
+{
+  "name": "@ai/shared",
+  "private": true,
+  "version": "0.1.0",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./schemas/researchResponse": "./schemas/researchResponse.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
+

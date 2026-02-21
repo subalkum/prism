@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+/* Google Fonts loaded via layout.tsx <link> tag */
+
+@theme inline {
+  /* Colors */
+  --color-prism-50: #f8f9fe;
+  --color-prism-100: #eef1fc;
+  --color-prism-200: #d5ddfa;
+  --color-prism-300: #a5bbfc;
+  --color-prism-400: #7b96f5;
+  --color-prism-500: #556adc;
+  --color-prism-600: #3d4ec4;
+  --color-prism-700: #2e3a9e;
+  --color-prism-800: #1e2666;
+  --color-prism-900: #0f1333;
+
+  --color-warm-50: #fff8f0;
+  --color-warm-100: #ffecd6;
+  --color-warm-200: #ffd4a8;
+  --color-warm-300: #ffb76b;
+  --color-warm-400: #ff8717;
+  --color-warm-500: #e67200;
+
+  --color-surface: #fafbff;
+  --color-surface-raised: #ffffff;
+  --color-surface-glass: rgba(255, 255, 255, 0.6);
+
+  --color-tx: #0f1629;
+  --color-tx-secondary: #4a5578;
+  --color-tx-tertiary: #8891a9;
+  --color-tx-muted: #b0b8cc;
+
+  --color-border: rgba(120, 130, 170, 0.15);
+  --color-border-strong: rgba(120, 130, 170, 0.3);
+
+  /* Fonts */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "DM Serif Display", ui-serif, Georgia, serif;
+
+  /* Shadows */
+  --shadow-soft: 0 2px 16px rgba(85, 106, 220, 0.06);
+  --shadow-card: 0 4px 24px rgba(85, 106, 220, 0.08);
+  --shadow-glow: 0 0 60px rgba(85, 106, 220, 0.12);
+  --shadow-button-dark: inset 0 0 12px rgba(255, 255, 255, 0.8), 0px 0px 2px rgba(0, 0, 0, 0.1);
+  --shadow-button-light: inset 0 0 12px rgba(0, 0, 0, 0.06), 0px 0px 1px rgba(0, 0, 0, 0.15);
+
+  /* Animations */
+  --animate-fade-up: fade-up 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  --animate-fade-in: fade-in 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  --animate-shimmer: shimmer 3s ease-in-out infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-slow: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ─── Keyframes ─── */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  50%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ─── Base ─── */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--color-surface);
+    font-family: var(--font-sans);
+    color: var(--color-tx);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ─── Section reveal animation ─── */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+    transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Glass morphism utility ─── */
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ─── Gradient text utility ─── */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-prism-500) 0%, var(--color-warm-400) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Custom scrollbar ─── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-tx-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-tx-tertiary);
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
