@@ -16,3 +16,4 @@ coverage/
 # Convex generated files
 packages/backend/convex/_generated/
 
+.vercel
