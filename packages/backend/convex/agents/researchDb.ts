@@ -1,25 +1,7 @@
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function tokenize(text: string) {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter((t) => t.length > 2);
-}
-
-function lexicalScore(query: string, content: string) {
-  const qt = tokenize(query);
-  if (qt.length === 0) return 0;
-  const ct = new Set(tokenize(content));
-  const hits = qt.filter((t) => ct.has(t)).length;
-  const bonus = content.toLowerCase().includes(query.toLowerCase()) ? 0.2 : 0;
-  return Math.min(1, hits / qt.length + bonus);
-}
+import { hybridScore } from "../rag/retrieve";
+import { snippet } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
 // Internal query: gather RAG chunks, preferences, memories for a research run
@@ -40,8 +22,8 @@ export const getSessionData = internalQuery({
     const allChunks = await ctx.db.query("ragChunks").collect();
     const limit = args.mode === "quick" ? 4 : 8;
     const ranked = allChunks
-      .map((chunk) => ({ chunk, relevance: lexicalScore(args.query, chunk.content) }))
-      .filter((x) => x.relevance > 0)
+      .map((chunk) => ({ chunk, relevance: hybridScore(args.query, chunk.content) }))
+      .filter((x) => x.relevance > 0.05)
       .sort((a, b) => b.relevance - a.relevance)
       .slice(0, limit);
 
@@ -56,11 +38,15 @@ export const getSessionData = internalQuery({
       }
     }
 
+    // Fetch more memories for richer context (10 instead of 5)
     const memories = await ctx.db
       .query("episodicMemories")
       .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
       .order("desc")
-      .take(5);
+      .take(10);
+
+    // Also fetch previous conversation messages from this session if a follow-up
+    const previousContext: string[] = [];
 
     return {
       preferences: profile?.preferences ?? {
@@ -72,10 +58,13 @@ export const getSessionData = internalQuery({
         chunkId: String(r.chunk._id),
         sourceId: String(r.chunk.sourceId),
         content: r.chunk.content,
+        heading: r.chunk.heading,
         relevance: r.relevance,
       })),
       sources,
       recentMemories: memories.map((m) => m.summary),
+      memoryTags: memories.flatMap((m) => m.tags),
+      previousContext,
     };
   },
 });
@@ -129,6 +118,8 @@ export const persistResearchResult = internalMutation({
     estimatedCostUsd: v.number(),
     latencyMs: v.number(),
     llmError: v.optional(v.string()),
+    memorySummary: v.optional(v.string()),
+    memoryTags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -224,20 +215,43 @@ export const persistResearchResult = internalMutation({
       updatedAt: now,
     });
 
+    // Create episodic memory with LLM-generated summary (or fallback to snippet)
     if (args.status !== "needs_clarification") {
-      await ctx.db.insert("episodicMemories", {
-        userId: args.userId,
-        sessionId,
-        insightId,
-        summary: args.answer.slice(0, 280),
-        decisions: [
-          args.mode === "deep"
-            ? "deep_analysis_generated"
-            : "quick_answer_generated",
-        ],
-        tags: ["research", args.mode, args.provider],
-        createdAt: now,
-      });
+      const summary = args.memorySummary ?? snippet(args.answer, 280);
+
+      // Extract topic tags from query for better memory retrieval
+      const queryTags = args.memoryTags ?? [
+        "research",
+        args.mode,
+        args.provider,
+      ];
+
+      // Dedup: check if a very similar memory already exists (same session)
+      const existingMemories = await ctx.db
+        .query("episodicMemories")
+        .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+        .order("desc")
+        .take(3);
+
+      const isDuplicate = existingMemories.some(
+        (m) => m.sessionId === sessionId && m.summary.slice(0, 80) === summary.slice(0, 80),
+      );
+
+      if (!isDuplicate) {
+        await ctx.db.insert("episodicMemories", {
+          userId: args.userId,
+          sessionId,
+          insightId,
+          summary,
+          decisions: [
+            args.mode === "deep"
+              ? "deep_analysis_generated"
+              : "quick_answer_generated",
+          ],
+          tags: queryTags,
+          createdAt: now,
+        });
+      }
     }
 
     return { sessionId, insightId };

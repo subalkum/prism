@@ -7,6 +7,8 @@ export const researchCitationSchema = z.object({
   url: z.string().url(),
   snippet: z.string(),
   relevance: z.number().min(0).max(1).optional(),
+  /** Citation label used for inline references, e.g. "[1]" */
+  label: z.number().int().positive().optional(),
 });
 
 export const researchTradeoffSchema = z.object({
@@ -49,4 +51,3 @@ export const researchResponseSchema = z.object({
 export type ResearchCitation = z.infer<typeof researchCitationSchema>;
 export type ResearchMode = z.infer<typeof researchModeSchema>;
 export type ResearchResponse = z.infer<typeof researchResponseSchema>;
-

@@ -1,7 +1,7 @@
 import { Providers } from "./providers";
 import { Header } from "@/components/Header";
 import { HeroSection } from "@/components/HeroSection";
-import { ResearchChat } from "@/components/ResearchChat";
+import { ResearchInput } from "@/components/ResearchInput";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { Footer } from "@/components/Footer";
 
@@ -11,7 +11,7 @@ export default function HomePage() {
       <Header />
       <main className="flex flex-col">
         <HeroSection />
-        <ResearchChat />
+        <ResearchInput />
         <FeaturesSection />
       </main>
       <Footer />

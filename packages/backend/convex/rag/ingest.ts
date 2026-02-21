@@ -1,11 +1,8 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
+import { estimateTokens } from "../lib/utils";
 
 export type ChunkStrategy = "fixed" | "heading-aware" | "semantic";
-
-function toTokenEstimate(text: string) {
-  return Math.max(1, Math.ceil(text.trim().length / 4));
-}
 
 function toKeywordBag(text: string) {
   return Array.from(
@@ -104,6 +101,21 @@ export function chunkByStrategy(content: string, chunkStrategy: ChunkStrategy) {
   return chunkHeadingAware(content);
 }
 
+/**
+ * Generate a real content hash based on content, not timestamp.
+ * Uses a simple hash of the first 500 chars + content length for dedup.
+ */
+function contentHash(url: string, content: string): string {
+  // Simple deterministic hash from content prefix + length
+  let hash = 0;
+  const sample = content.slice(0, 500);
+  for (let i = 0; i < sample.length; i++) {
+    const char = sample.charCodeAt(i);
+    hash = ((hash << 5) - hash + char) | 0;
+  }
+  return `${url}:${content.length}:${Math.abs(hash).toString(36)}`;
+}
+
 export const ingestDocument = mutation({
   args: {
     userId: v.string(),
@@ -119,15 +131,37 @@ export const ingestDocument = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const contentLength = args.content.length;
+    const hash = contentHash(args.sourceUrl, args.content);
+
+    // Check for existing source with same content hash (dedup)
+    const existing = await ctx.db
+      .query("sources")
+      .withIndex("by_hash", (q) => q.eq("contentHash", hash))
+      .unique();
+
+    if (existing) {
+      return {
+        accepted: false,
+        sourceId: existing._id,
+        documentId: null,
+        sourceUrl: args.sourceUrl,
+        chunkStrategy: args.chunkStrategy,
+        chunkCount: 0,
+        keywordBagPreview: [],
+        queuedAt: now,
+        message: "Duplicate content — source already ingested.",
+      };
+    }
+
     const sourceId = await ctx.db.insert("sources", {
       userId: args.userId,
       sourceType: "url",
       sourceUrl: args.sourceUrl,
       title: args.title,
-      contentHash: `${args.sourceUrl}:${contentLength}:${now}`,
+      contentHash: hash,
       metadata: {
         strategy: args.chunkStrategy,
-        tokenEstimate: toTokenEstimate(args.content),
+        tokenEstimate: estimateTokens(args.content),
         charCount: contentLength,
       },
       createdAt: now,
@@ -143,12 +177,14 @@ export const ingestDocument = mutation({
       chunkStrategy: strategy,
       metadata: {
         chunkCount: chunks.length,
-        tokenEstimate: toTokenEstimate(args.content),
+        tokenEstimate: estimateTokens(args.content),
         language: "en",
       },
       createdAt: now,
     });
 
+    // Track cumulative offset for correct startOffset per chunk
+    let cumulativeOffset = 0;
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
       const chunk = chunks[chunkIndex];
       await ctx.db.insert("ragChunks", {
@@ -158,14 +194,15 @@ export const ingestDocument = mutation({
         heading: chunk.heading,
         content: chunk.text,
         embeddingKey: undefined,
-        tokenEstimate: toTokenEstimate(chunk.text),
+        tokenEstimate: estimateTokens(chunk.text),
         metadata: {
           strategy,
-          startOffset: chunkIndex * 900,
-          endOffset: chunkIndex * 900 + chunk.text.length,
+          startOffset: cumulativeOffset,
+          endOffset: cumulativeOffset + chunk.text.length,
         },
         createdAt: now,
       });
+      cumulativeOffset += chunk.text.length;
     }
 
     return {

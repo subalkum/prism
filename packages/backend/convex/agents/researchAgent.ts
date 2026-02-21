@@ -5,18 +5,33 @@ import { v } from "convex/values";
 import { researchResponseSchema } from "@ai/shared/schemas/researchResponse";
 import { callLLMWithFallback, type LLMResponse } from "../llm/providers";
 import type { FunctionReference } from "convex/server";
+import {
+  snippet,
+  estimateTokens,
+  estimateCost,
+  isAmbiguous,
+  tokenize,
+  computeConfidence,
+  extractLLMConfidence,
+  hasCodeBlocks,
+  hasStructuredSections,
+  type ConfidenceSignals,
+} from "../lib/utils";
 
-// We reference internal functions from researchDb.ts. The generated `internal`
-// object won't have these until `npx convex dev` regenerates types, so we
-// build typed references manually to avoid circular inference.
+// ---------------------------------------------------------------------------
+// Internal function references (avoids circular codegen dependency)
+// ---------------------------------------------------------------------------
 const getSessionDataRef = "agents/researchDb:getSessionData" as unknown as FunctionReference<"query">;
 const persistResearchResultRef = "agents/researchDb:persistResearchResult" as unknown as FunctionReference<"mutation">;
 
-// Type returned by getSessionData
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 interface RankedChunk {
   chunkId: string;
   sourceId: string;
   content: string;
+  heading?: string;
   relevance: number;
 }
 interface SessionData {
@@ -28,41 +43,13 @@ interface SessionData {
   ranked: RankedChunk[];
   sources: Record<string, { sourceUrl: string; title: string }>;
   recentMemories: string[];
+  memoryTags: string[];
+  previousContext: string[];
 }
 
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for integration tests)
+// Deterministic fallback answer (when ALL LLM providers fail)
 // ---------------------------------------------------------------------------
-
-function tokenize(text: string) {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter((t) => t.length > 2);
-}
-
-function snippet(text: string, max = 220) {
-  return text.replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-export function isAmbiguous(query: string) {
-  const q = query.trim();
-  if (q.length < 18) return true;
-  const weak = new Set([
-    "this",
-    "that",
-    "it",
-    "thing",
-    "stuff",
-    "more",
-    "better",
-  ]);
-  return tokenize(q).filter((t) => !weak.has(t)).length < 3;
-}
-
-export function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
 
 export function buildAnswer(args: {
   mode: "quick" | "deep";
@@ -96,47 +83,180 @@ export function buildAnswer(args: {
 }
 
 // ---------------------------------------------------------------------------
-// System prompt builder
+// System prompt builder — now with inline citation labels & structured output
 // ---------------------------------------------------------------------------
 
 function buildSystemPrompt(args: {
   mode: "quick" | "deep";
   prefersCodeExamples: boolean;
   verbosity: "concise" | "balanced" | "detailed";
-  ragSnippets: string[];
+  ragSnippets: Array<{ label: number; title: string; url: string; snippet: string }>;
   memories: string[];
+  citationStyle: "inline" | "footnote";
 }) {
   const modeInstruction =
     args.mode === "quick"
-      ? "You are a senior research engineer. Give a focused, high-signal answer. Be concise but precise. Cite sources when available."
-      : "You are a senior research engineer conducting a deep technical analysis. Provide a structured report with: Summary, Detailed Analysis (compare at least 3 approaches with tradeoffs), Recommendations, Limitations. Cite sources.";
+      ? `You are a senior research engineer. Give a focused, high-signal answer. Be concise but precise.`
+      : `You are a senior research engineer conducting a deep technical analysis. Provide a structured report with:
+## Summary
+Brief overview of findings.
+
+## Detailed Analysis
+Compare at least 3 approaches with tradeoffs. Use tables where appropriate.
+
+## Recommendations
+Actionable next steps with rationale.
+
+## Limitations
+What's unknown or uncertain.`;
 
   const codeInstruction = args.prefersCodeExamples
-    ? "\nThe user prefers code examples — include concrete code snippets where relevant."
+    ? "\nThe user prefers code examples — include concrete, runnable code snippets where relevant. Use TypeScript unless the context suggests otherwise."
     : "";
 
   const verbosityInstruction =
     args.verbosity === "concise"
       ? "\nKeep the response concise (under 500 words)."
       : args.verbosity === "detailed"
-        ? "\nProvide a detailed response with thorough explanations."
+        ? "\nProvide a detailed response with thorough explanations (1000+ words for deep mode)."
         : "";
 
+  // Citation context with numbered labels
   const ragContext =
     args.ragSnippets.length > 0
-      ? `\n\nRelevant context from indexed sources:\n${args.ragSnippets.map((s, i) => `[${i + 1}] ${s}`).join("\n\n")}`
+      ? `\n\nRelevant context from indexed sources (use these citations inline as [1], [2], etc.):\n${args.ragSnippets
+          .map((s) => `[${s.label}] "${s.title}" (${s.url})\n${s.snippet}`)
+          .join("\n\n")}`
+      : "";
+
+  const citationInstruction =
+    args.ragSnippets.length > 0
+      ? `\n\nIMPORTANT: When referencing information from the sources above, use inline citation markers like [1], [2], etc. to indicate which source supports each claim.`
       : "";
 
   const memoryContext =
     args.memories.length > 0
-      ? `\n\nFrom prior sessions:\n${args.memories.map((m) => `- ${m}`).join("\n")}`
+      ? `\n\nFrom prior research sessions with this user:\n${args.memories.map((m) => `- ${m}`).join("\n")}`
       : "";
 
-  return `${modeInstruction}${codeInstruction}${verbosityInstruction}${ragContext}${memoryContext}`;
+  // Structured output instructions for follow-ups and tradeoffs
+  const structuredOutputInstructions = `
+
+IMPORTANT: At the very end of your response, include this exact block (it will be parsed and removed from the displayed answer):
+
+\`\`\`json:metadata
+{
+  "followUpQuestions": ["<3 context-specific follow-up questions the user might want to ask next>"],
+  "tradeoffs": [${args.mode === "deep" ? `
+    {"option": "<approach 1 name>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]},
+    {"option": "<approach 2 name>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]}` : ""}
+  ],
+  "confidence": <your confidence in this answer from 0.0 to 1.0, be honest about uncertainty>
+}
+\`\`\``;
+
+  return `${modeInstruction}${codeInstruction}${verbosityInstruction}${ragContext}${citationInstruction}${memoryContext}${structuredOutputInstructions}`;
 }
 
 // ---------------------------------------------------------------------------
-// Main research action — calls real LLMs with Gemini -> Groq -> Cerebras fallback
+// Parse structured metadata block from LLM response
+// ---------------------------------------------------------------------------
+
+interface ParsedMetadata {
+  followUpQuestions: string[];
+  tradeoffs: Array<{ option: string; pros: string[]; cons: string[] }>;
+  confidence: number | null;
+}
+
+function parseStructuredOutput(text: string): {
+  cleanAnswer: string;
+  metadata: ParsedMetadata;
+} {
+  const defaultMetadata: ParsedMetadata = {
+    followUpQuestions: [],
+    tradeoffs: [],
+    confidence: null,
+  };
+
+  // Match ```json:metadata ... ``` block
+  const metadataPattern = /```json:metadata\s*\n([\s\S]*?)```/;
+  const match = text.match(metadataPattern);
+
+  if (!match) {
+    // Try alternative: <!-- confidence: X.X --> format
+    const { confidence, cleanText } = extractLLMConfidence(text);
+    return {
+      cleanAnswer: cleanText,
+      metadata: { ...defaultMetadata, confidence },
+    };
+  }
+
+  const cleanAnswer = text.replace(metadataPattern, "").trim();
+  try {
+    const parsed = JSON.parse(match[1]);
+    return {
+      cleanAnswer,
+      metadata: {
+        followUpQuestions: Array.isArray(parsed.followUpQuestions)
+          ? parsed.followUpQuestions.filter((q: unknown) => typeof q === "string").slice(0, 5)
+          : [],
+        tradeoffs: Array.isArray(parsed.tradeoffs)
+          ? parsed.tradeoffs
+              .filter(
+                (t: Record<string, unknown>) =>
+                  typeof t === "object" &&
+                  t !== null &&
+                  typeof t.option === "string",
+              )
+              .map((t: Record<string, unknown>) => ({
+                option: String(t.option),
+                pros: Array.isArray(t.pros) ? t.pros.map(String) : [],
+                cons: Array.isArray(t.cons) ? t.cons.map(String) : [],
+              }))
+          : [],
+        confidence:
+          typeof parsed.confidence === "number"
+            ? Math.min(1, Math.max(0, parsed.confidence))
+            : null,
+      },
+    };
+  } catch {
+    return { cleanAnswer, metadata: defaultMetadata };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generate memory summary via LLM (quick call)
+// ---------------------------------------------------------------------------
+
+async function generateMemorySummary(
+  query: string,
+  answer: string,
+): Promise<{ summary: string; tags: string[] }> {
+  try {
+    const resp = await callLLMWithFallback({
+      systemPrompt:
+        "You are a concise summarizer. Given a research query and answer, produce a 1-2 sentence summary of the key finding and a list of 3-5 topic tags. Respond in JSON: {\"summary\": \"...\", \"tags\": [\"tag1\", \"tag2\"]}",
+      userPrompt: `Query: ${query}\n\nAnswer (first 500 chars): ${answer.slice(0, 500)}`,
+      mode: "quick",
+      maxTokens: 200,
+    });
+    const parsed = JSON.parse(resp.text);
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 300) : answer.slice(0, 280),
+      tags: Array.isArray(parsed.tags) ? parsed.tags.map(String).slice(0, 5) : [],
+    };
+  } catch {
+    // Fallback: first 280 chars + basic tags from query
+    return {
+      summary: answer.slice(0, 280),
+      tags: tokenize(query).slice(0, 5),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main research action
 // ---------------------------------------------------------------------------
 
 export const runResearch = action({
@@ -149,33 +269,45 @@ export const runResearch = action({
   },
   handler: async (ctx, args): Promise<Record<string, unknown>> => {
     // 1. Gather RAG chunks, preferences, and memories from DB
-    const sessionData: SessionData = await ctx.runQuery(
-      getSessionDataRef,
-      {
-        userId: args.userId,
-        query: args.query,
-        mode: args.mode,
-      },
-    );
+    const sessionData: SessionData = await ctx.runQuery(getSessionDataRef, {
+      userId: args.userId,
+      query: args.query,
+      mode: args.mode,
+    });
 
     const clarificationRequired = isAmbiguous(args.query);
 
-    // 2. Build prompts
+    // 2. Build numbered citation labels for RAG snippets
+    const citationMap = sessionData.ranked.map((r, i) => {
+      const src = sessionData.sources[r.sourceId] as
+        | { sourceUrl: string; title: string }
+        | undefined;
+      return {
+        label: i + 1,
+        title: src?.title ?? "Untitled",
+        url: src?.sourceUrl ?? "https://example.com",
+        snippet: snippet(r.content),
+        sourceId: r.sourceId,
+        chunkId: r.chunkId,
+        relevance: r.relevance,
+      };
+    });
+
+    // 3. Build prompts
     const systemPrompt = buildSystemPrompt({
       mode: args.mode,
       prefersCodeExamples: sessionData.preferences.prefersCodeExamples,
       verbosity: sessionData.preferences.responseVerbosity,
-      ragSnippets: sessionData.ranked.map(
-        (r: { content: string }) => snippet(r.content),
-      ),
+      ragSnippets: citationMap,
       memories: sessionData.recentMemories,
+      citationStyle: sessionData.preferences.citationStyle,
     });
 
     const userPrompt = clarificationRequired
-      ? `The user asked: "${args.query}"\n\nThis query seems ambiguous. Ask a clarifying question and explain what additional information would help provide a better answer.`
+      ? `The user asked: "${args.query}"\n\nThis query seems ambiguous or too short. Ask a specific clarifying question and explain what additional details would help you provide a better, more targeted answer.`
       : args.query;
 
-    // 3. Call LLM with Gemini -> Groq -> Cerebras fallback
+    // 4. Call LLM with fallback chain
     let llmResponse: LLMResponse;
     let llmError: string | undefined;
 
@@ -188,14 +320,13 @@ export const runResearch = action({
       });
     } catch (err) {
       llmError = err instanceof Error ? err.message : String(err);
-      // Deterministic fallback so user always gets something
       llmResponse = {
         text: buildAnswer({
           mode: args.mode,
           query: args.query,
           snippets: sessionData.ranked
             .slice(0, 3)
-            .map((r: { content: string }) => snippet(r.content)),
+            .map((r) => snippet(r.content)),
           prefersCodeExamples: sessionData.preferences.prefersCodeExamples,
           verbosity: sessionData.preferences.responseVerbosity,
         }),
@@ -209,114 +340,115 @@ export const runResearch = action({
       };
     }
 
-    // 4. Build structured response
+    // 5. Parse structured metadata from LLM response
+    const { cleanAnswer, metadata } = parseStructuredOutput(llmResponse.text);
+
+    // 6. Build response status
     const status = clarificationRequired
       ? "needs_clarification"
       : llmError
         ? "fallback"
         : "answered";
 
-    const confidence = Math.max(
-      0.25,
-      Math.min(
-        0.95,
-        sessionData.ranked.length / 8 +
-          (clarificationRequired ? -0.2 : 0.1) +
-          (llmError ? -0.2 : 0),
-      ),
-    );
+    // 7. Multi-signal confidence scoring
+    const avgRelevance =
+      sessionData.ranked.length > 0
+        ? sessionData.ranked.reduce((sum, r) => sum + r.relevance, 0) / sessionData.ranked.length
+        : 0;
 
-    const citations = sessionData.ranked.map(
-      (r: {
-        sourceId: string;
-        chunkId: string;
-        content: string;
-        relevance: number;
-      }) => {
-        const src = sessionData.sources[r.sourceId] as
-          | { sourceUrl: string; title: string }
-          | undefined;
-        return {
-          sourceId: r.sourceId,
-          chunkId: r.chunkId,
-          title: src?.title ?? "Untitled",
-          url: src?.sourceUrl ?? "https://example.com",
-          snippet: snippet(r.content),
-          relevance: Number(r.relevance.toFixed(3)),
-        };
-      },
-    );
+    const distinctSources = new Set(sessionData.ranked.map((r) => r.sourceId)).size;
+    const maxChunks = args.mode === "quick" ? 4 : 8;
 
+    const confidenceSignals: ConfidenceSignals = {
+      avgRelevance,
+      sourcesCount: distinctSources,
+      chunksFound: sessionData.ranked.length,
+      maxChunks,
+      answerLength: cleanAnswer.length,
+      hasCodeBlocks: hasCodeBlocks(cleanAnswer),
+      hasStructuredSections: hasStructuredSections(cleanAnswer),
+      llmSelfConfidence: metadata.confidence,
+      clarificationRequired,
+      llmFailed: !!llmError,
+      mode: args.mode,
+    };
+
+    const confidence = computeConfidence(confidenceSignals);
+
+    // 8. Build citations with labels
+    const citations = citationMap.map((c) => ({
+      sourceId: c.sourceId,
+      chunkId: c.chunkId,
+      title: c.title,
+      url: c.url,
+      snippet: c.snippet,
+      relevance: Number(c.relevance.toFixed(3)),
+      label: c.label,
+    }));
+
+    // 9. Use LLM-generated tradeoffs (with fallback)
     const tradeoffs =
-      args.mode === "deep"
-        ? [
-            {
-              option: "Fixed chunking",
-              pros: ["Predictable token budget", "Simple pipeline"],
-              cons: ["Can break semantic boundaries"],
-            },
-            {
-              option: "Semantic chunking",
-              pros: ["Better conceptual cohesion"],
-              cons: ["Higher preprocessing cost"],
-            },
-          ]
-        : [];
+      metadata.tradeoffs.length > 0
+        ? metadata.tradeoffs
+        : args.mode === "deep"
+          ? [
+              {
+                option: "Further analysis needed",
+                pros: ["The LLM did not generate specific tradeoffs for this query"],
+                cons: ["Consider re-running in deep mode with more specific query"],
+              },
+            ]
+          : [];
 
-    const followUpQuestions = clarificationRequired
-      ? [
-          "Can you specify target stack/version?",
-          "Should results optimize for latency, cost, or quality?",
-        ]
-      : [
-          "Want a benchmark checklist for this?",
-          "Should I generate a production rollout plan?",
-        ];
+    // 10. Use LLM-generated follow-up questions (with fallback)
+    const followUpQuestions =
+      metadata.followUpQuestions.length > 0
+        ? metadata.followUpQuestions
+        : clarificationRequired
+          ? [
+              "Can you specify the technology stack or framework?",
+              "What is the target environment (production, dev, research)?",
+              "Are you optimizing for latency, cost, or quality?",
+            ]
+          : [
+              "How does this compare to alternative approaches?",
+              "What are the production deployment considerations?",
+              "Can you provide a benchmark or evaluation strategy?",
+            ];
 
+    // 11. Build clarification prompt (LLM-generated if needed)
+    const clarificationPrompt = clarificationRequired
+      ? {
+          question: cleanAnswer.includes("?")
+            ? cleanAnswer.split("?")[0] + "?"
+            : "Could you provide more details about the scope, target stack, and specific goals?",
+          reason: "The query needs more context for a production-quality recommendation.",
+        }
+      : undefined;
+
+    // 12. Limitations
     const limitations = llmError
       ? [
           `All LLM providers failed. Showing RAG-only answer. Error: ${llmError.slice(0, 200)}`,
         ]
       : sessionData.ranked.length === 0
-        ? ["No indexed sources matched. Ingest docs first."]
+        ? ["No indexed sources matched this query. Ingest relevant docs for grounded answers."]
         : [];
 
-    const pricing =
-      llmResponse.provider === "gemini"
-        ? 0.005
-        : llmResponse.provider === "groq"
-          ? 0.002
-          : 0.0015;
-    const estimatedCostUsd = Number(
-      ((llmResponse.totalTokens / 1000) * pricing).toFixed(6),
+    // 13. Cost calculation using per-model pricing
+    const estimatedCostUsd = estimateCost(
+      llmResponse.model,
+      llmResponse.totalTokens,
     );
 
     const responseCandidate = {
       mode: args.mode,
       status,
-      answer: llmResponse.text,
-      citations: citations.map(
-        (c: {
-          sourceId: string;
-          chunkId: string;
-          title: string;
-          url: string;
-          snippet: string;
-          relevance: number;
-        }) => ({
-          ...c,
-        }),
-      ),
+      answer: cleanAnswer,
+      citations,
       tradeoffs,
       followUpQuestions,
-      clarificationPrompt: clarificationRequired
-        ? {
-            question:
-              "Could you narrow scope by framework, data source type, and goal?",
-            reason:
-              "The query is underspecified for a production recommendation.",
-          }
-        : undefined,
+      clarificationPrompt,
       confidence,
       limitations,
       telemetry: {
@@ -340,19 +472,32 @@ export const runResearch = action({
           status: "fallback" as const,
           answer:
             "Response validation failed. Returning a minimal safe answer.\n\n" +
-            llmResponse.text.slice(0, 500),
+            cleanAnswer.slice(0, 500),
           citations: [] as typeof citations,
           tradeoffs: [] as typeof tradeoffs,
           followUpQuestions: ["Want me to retry with a narrower scope?"],
           clarificationPrompt: undefined as
             | { question: string; reason: string }
             | undefined,
-          confidence: 0.2,
+          confidence: 0.15,
           limitations: ["Zod validation failed on the synthesized response."],
           telemetry: responseCandidate.telemetry,
         };
 
-    // 5. Persist everything to DB via internal mutation
+    // 14. Generate memory summary (async, non-blocking fallback)
+    let memorySummary: string | undefined;
+    let memoryTags: string[] | undefined;
+    if (status === "answered") {
+      try {
+        const mem = await generateMemorySummary(args.query, cleanAnswer);
+        memorySummary = mem.summary;
+        memoryTags = [...mem.tags, "research", args.mode, llmResponse.provider];
+      } catch {
+        // Fall through — researchDb will use fallback
+      }
+    }
+
+    // 15. Persist everything to DB
     const dbResult: { sessionId: string; insightId: string } =
       await ctx.runMutation(persistResearchResultRef, {
         userId: args.userId,
@@ -377,8 +522,9 @@ export const runResearch = action({
         estimatedCostUsd,
         latencyMs: llmResponse.latencyMs,
         llmError,
-      },
-    );
+        memorySummary,
+        memoryTags,
+      });
 
     return {
       sessionId: dbResult.sessionId,

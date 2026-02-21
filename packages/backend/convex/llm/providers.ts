@@ -203,9 +203,7 @@ async function callCerebras(
 // Token estimation fallback (when provider doesn't return usage)
 // ---------------------------------------------------------------------------
 
-function estimateTokens(text: string) {
-  return Math.max(1, Math.ceil(text.length / 4));
-}
+import { estimateTokens } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
 // Fallback chain: Gemini -> Groq -> Cerebras
