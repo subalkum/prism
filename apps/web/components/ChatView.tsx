@@ -35,7 +35,66 @@ interface Message {
   timestamp: number;
 }
 
+interface SessionSummary {
+  _id: string;
+  title: string;
+  mode: ResearchMode;
+  updatedAt: number;
+  latestQuery: string;
+}
+
 type LoadingStep = "retrieving" | "analyzing" | "generating" | null;
+
+// ---------------------------------------------------------------------------
+// useTypingEffect — word-by-word reveal for AI responses
+// ---------------------------------------------------------------------------
+
+function useTypingEffect(
+  fullText: string,
+  enabled: boolean,
+  wordsPerSecond = 40,
+) {
+  const [displayedText, setDisplayedText] = useState(enabled ? "" : fullText);
+  const [isTyping, setIsTyping] = useState(enabled);
+  const skipRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayedText(fullText);
+      setIsTyping(false);
+      return;
+    }
+
+    setIsTyping(true);
+    skipRef.current = false;
+
+    const words = fullText.split(/(\s+)/);
+    let currentIndex = 0;
+    const interval = 1000 / wordsPerSecond;
+
+    const timer = setInterval(() => {
+      if (skipRef.current || currentIndex >= words.length) {
+        setDisplayedText(fullText);
+        setIsTyping(false);
+        clearInterval(timer);
+        return;
+      }
+
+      currentIndex++;
+      setDisplayedText(words.slice(0, currentIndex).join(""));
+    }, interval);
+
+    return () => clearInterval(timer);
+  }, [fullText, enabled, wordsPerSecond]);
+
+  const skip = useCallback(() => {
+    skipRef.current = true;
+    setDisplayedText(fullText);
+    setIsTyping(false);
+  }, [fullText]);
+
+  return { displayedText, isTyping, skip };
+}
 
 // ---------------------------------------------------------------------------
 // Wrapper with Suspense for useSearchParams
@@ -61,13 +120,28 @@ function ChatLoadingShell() {
 }
 
 // ---------------------------------------------------------------------------
+// Time formatting helper
+// ---------------------------------------------------------------------------
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
 // Main ChatView (inner, uses useSearchParams)
 // ---------------------------------------------------------------------------
 
 function ChatViewInner() {
   const searchParams = useSearchParams();
 
-  // Read initial query and mode from URL params (set by landing page)
   const initialQuery = searchParams.get("q") ?? "";
   const initialMode = (searchParams.get("mode") as ResearchMode) ?? "quick";
 
@@ -81,17 +155,61 @@ function ChatViewInner() {
   const [error, setError] = useState<string | null>(null);
   const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Chat history
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasSubmittedInitial = useRef(false);
+  const isNearBottomRef = useRef(true);
 
   const canSubmit = query.trim().length > 0 && !isLoading;
 
-  // Auto-scroll to bottom
+  // ─── Fetch session history on mount ───
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isLoading]);
+    async function fetchSessions() {
+      setLoadingSessions(true);
+      try {
+        const res = await fetch(`/api/sessions?userId=${encodeURIComponent(userId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSessions(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        // silently fail
+      } finally {
+        setLoadingSessions(false);
+      }
+    }
+    fetchSessions();
+  }, [userId]);
+
+  // ─── Smart scroll ───
+  const checkNearBottom = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const threshold = 120;
+    isNearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  const scrollToBottom = useCallback((force = false) => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (force || isNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading, scrollToBottom]);
 
   // Loading step simulation
   useEffect(() => {
@@ -124,6 +242,7 @@ function ChatViewInner() {
       setQuery("");
       setIsLoading(true);
       setError(null);
+      scrollToBottom(true);
 
       try {
         const response = await fetch("/api/research", {
@@ -144,23 +263,38 @@ function ChatViewInner() {
         }
 
         const typed = payload as ResearchResult;
-        if (typed.sessionId) setSessionId(typed.sessionId);
+        if (typed.sessionId) {
+          setSessionId(typed.sessionId);
+          setActiveSessionId(typed.sessionId);
+        }
 
+        const newMsgId = `asst-${Date.now()}`;
         const assistantMsg: Message = {
-          id: `asst-${Date.now()}`,
+          id: newMsgId,
           role: "assistant",
           content: typed.answer,
           result: typed,
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        setTypingMessageId(newMsgId);
+        scrollToBottom(true);
+
+        // Refresh session list
+        try {
+          const sessRes = await fetch(`/api/sessions?userId=${encodeURIComponent(userId)}`);
+          if (sessRes.ok) {
+            const data = await sessRes.json();
+            setSessions(Array.isArray(data) ? data : []);
+          }
+        } catch { /* non-critical */ }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unexpected error");
       } finally {
         setIsLoading(false);
       }
     },
-    [userId, sessionId, isLoading],
+    [userId, sessionId, isLoading, scrollToBottom],
   );
 
   // Handle initial query from URL
@@ -184,12 +318,124 @@ function ChatViewInner() {
   function handleNewChat() {
     setMessages([]);
     setSessionId(undefined);
+    setActiveSessionId(null);
     setError(null);
     setQuery("");
+    setTypingMessageId(null);
     inputRef.current?.focus();
   }
 
-  // Handle Ctrl+Enter / Enter submit
+  // Load a past session
+  async function handleLoadSession(sess: SessionSummary) {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sess._id)}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const loadedMessages: Message[] = [];
+
+      const citationMap = new Map<string, (typeof data.citations)>();
+      for (const cite of data.citations ?? []) {
+        const key = cite.insightId;
+        if (!citationMap.has(key)) citationMap.set(key, []);
+        citationMap.get(key)!.push(cite);
+      }
+
+      const usageMap = new Map<string, (typeof data.usageLogs)[0]>();
+      for (const log of data.usageLogs ?? []) {
+        usageMap.set(log._id, log);
+      }
+
+      for (const msg of data.messages ?? []) {
+        if (msg.role === "user") {
+          loadedMessages.push({
+            id: msg._id,
+            role: "user",
+            content: msg.content,
+            mode: sess.mode,
+            timestamp: msg.createdAt,
+          });
+        } else if (msg.role === "assistant") {
+          let matchedInsight: (typeof data.insights)[0] | undefined;
+          let minDiff = Infinity;
+          for (const insight of data.insights ?? []) {
+            const diff = Math.abs(insight.createdAt - msg.createdAt);
+            if (diff < minDiff) {
+              minDiff = diff;
+              matchedInsight = insight;
+            }
+          }
+
+          const insightCitations = matchedInsight
+            ? (citationMap.get(matchedInsight._id) ?? [])
+            : [];
+
+          const usageLog = matchedInsight?.telemetryId
+            ? usageMap.get(matchedInsight.telemetryId)
+            : undefined;
+
+          const result: ResearchResult | undefined = matchedInsight
+            ? {
+                mode: matchedInsight.mode,
+                status: matchedInsight.status,
+                answer: matchedInsight.answer,
+                citations: insightCitations.map(
+                  (c: Record<string, unknown>, i: number) => ({
+                    sourceId: c.sourceId as string,
+                    chunkId: c.chunkId as string,
+                    title: c.title as string,
+                    url: c.url as string,
+                    snippet: c.snippet as string,
+                    relevance: c.relevance as number,
+                    label: i + 1,
+                  }),
+                ),
+                tradeoffs: matchedInsight.tradeoffs ?? [],
+                followUpQuestions: matchedInsight.followUpQuestions ?? [],
+                clarificationPrompt: matchedInsight.clarificationPrompt,
+                confidence: matchedInsight.confidence,
+                limitations: matchedInsight.limitations ?? [],
+                telemetry: usageLog
+                  ? {
+                      provider: usageLog.provider,
+                      model: usageLog.model,
+                      route: usageLog.route,
+                      promptTokens: usageLog.promptTokens,
+                      completionTokens: usageLog.completionTokens,
+                      totalTokens: usageLog.totalTokens,
+                      estimatedCostUsd: usageLog.estimatedCostUsd,
+                      latencyMs: usageLog.latencyMs,
+                    }
+                  : undefined,
+                sessionId: sess._id,
+                insightId: matchedInsight._id,
+              }
+            : undefined;
+
+          loadedMessages.push({
+            id: msg._id,
+            role: "assistant",
+            content: msg.content,
+            result,
+            timestamp: msg.createdAt,
+          });
+        }
+      }
+
+      setMessages(loadedMessages);
+      setSessionId(sess._id);
+      setActiveSessionId(sess._id);
+      setMode(sess.mode);
+      setTypingMessageId(null);
+      setError(null);
+      setSidebarOpen(false);
+
+      requestAnimationFrame(() => scrollToBottom(true));
+    } catch {
+      // silently fail
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -212,15 +458,15 @@ function ChatViewInner() {
       >
         {/* Sidebar header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700 shadow-sm">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700 shadow-sm">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="12 2 2 7 12 12 22 7 12 2" />
                 <polyline points="2 17 12 22 22 17" />
                 <polyline points="2 12 12 17 22 12" />
               </svg>
             </div>
-            <span className="text-base font-bold tracking-tight text-tx">prism</span>
+            <span className="text-[15px] font-bold tracking-tight text-tx">prism</span>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -237,7 +483,7 @@ function ChatViewInner() {
         <div className="p-3">
           <button
             onClick={handleNewChat}
-            className="flex w-full items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-tx transition-all hover:border-prism-300 hover:bg-prism-50"
+            className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-tx transition-all hover:border-prism-300 hover:bg-prism-50"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -247,7 +493,7 @@ function ChatViewInner() {
           </button>
         </div>
 
-        {/* Mode toggle in sidebar */}
+        {/* Mode toggle */}
         <div className="px-3 pb-3">
           <div className="flex gap-1 rounded-xl border border-border bg-surface p-1">
             <button
@@ -273,23 +519,51 @@ function ChatViewInner() {
           </div>
         </div>
 
-        {/* Session info */}
-        <div className="flex-1 overflow-y-auto px-3">
-          {sessionId && (
-            <div className="rounded-lg bg-surface px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-[1px] text-tx-muted">
-                Session
-              </p>
-              <p className="mt-0.5 truncate text-xs text-tx-secondary">
-                {sessionId.slice(0, 20)}...
-              </p>
+        {/* ─── Chat history ─── */}
+        <div className="flex-1 overflow-y-auto px-3 pb-3">
+          <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[1.5px] text-tx-muted">
+            History
+          </p>
+          {loadingSessions ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-12 animate-pulse rounded-lg bg-prism-50" />
+              ))}
+            </div>
+          ) : sessions.length === 0 ? (
+            <p className="px-1 text-xs text-tx-muted">No past sessions</p>
+          ) : (
+            <div className="space-y-1">
+              {sessions.map((sess) => (
+                <button
+                  key={sess._id}
+                  onClick={() => handleLoadSession(sess)}
+                  className={`group flex w-full flex-col rounded-lg px-3 py-2.5 text-left transition-all ${
+                    activeSessionId === sess._id
+                      ? "bg-prism-50 text-prism-700"
+                      : "text-tx-secondary hover:bg-prism-50/50 hover:text-tx"
+                  }`}
+                >
+                  <span className="truncate text-xs font-medium leading-tight">
+                    {sess.title}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-tx-muted">
+                    <span className={`inline-block h-1 w-1 rounded-full ${
+                      sess.mode === "deep" ? "bg-warm-400" : "bg-prism-400"
+                    }`} />
+                    {sess.mode}
+                    <span className="text-border-strong">|</span>
+                    {timeAgo(sess.updatedAt)}
+                  </span>
+                </button>
+              ))}
             </div>
           )}
         </div>
 
         {/* Sidebar footer */}
         <div className="border-t border-border px-5 py-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-prism-100 text-xs font-bold text-prism-700">
               {userId[0]?.toUpperCase() ?? "U"}
             </div>
@@ -341,23 +615,29 @@ function ChatViewInner() {
         </header>
 
         {/* ─── Messages ─── */}
-        <div className="flex-1 overflow-y-auto">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto"
+          onScroll={checkNearBottom}
+        >
           {messages.length === 0 && !isLoading ? (
             /* Empty state */
             <div className="flex h-full flex-col items-center justify-center px-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-prism-500 to-prism-700 shadow-lg">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-prism-500 to-prism-700 shadow-lg shadow-prism-200">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="12 2 2 7 12 12 22 7 12 2" />
                   <polyline points="2 17 12 22 22 17" />
                   <polyline points="2 12 12 17 22 12" />
                 </svg>
               </div>
-              <h2 className="mt-5 text-xl font-semibold text-tx">What do you want to research?</h2>
+              <h2 className="mt-6 text-xl font-semibold text-tx">
+                What do you want to research?
+              </h2>
               <p className="mt-2 max-w-md text-center text-sm text-tx-secondary">
-                Ask a technical question. Get grounded answers with sources, confidence scores, and follow-up suggestions.
+                Ask anything. Get grounded answers with sources and confidence scores.
               </p>
               {/* Example queries */}
-              <div className="mt-8 flex flex-wrap justify-center gap-2">
+              <div className="mt-8 flex max-w-2xl flex-wrap justify-center gap-2">
                 {[
                   "Quick overview of approaches to reducing LLM hallucinations",
                   "Deep dive on RAG chunking strategies with tradeoffs",
@@ -379,21 +659,26 @@ function ChatViewInner() {
           ) : (
             /* Message thread */
             <div className="mx-auto max-w-3xl px-4 py-6">
-              {messages.map((msg) => (
+              {messages.map((msg, idx) => (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
                   userId={userId}
-                  isLast={msg === messages[messages.length - 1]}
+                  isLast={idx === messages.length - 1}
+                  isTyping={msg.id === typingMessageId}
+                  onTypingComplete={() => {
+                    if (msg.id === typingMessageId) setTypingMessageId(null);
+                  }}
                   onFollowUp={handleFollowUp}
                   activeCitationId={activeCitationId}
                   onCitationClick={setActiveCitationId}
+                  onScrollRequest={() => scrollToBottom()}
                 />
               ))}
 
               {/* Loading indicator */}
               {isLoading && (
-                <div className="mb-6 flex gap-3">
+                <div className="message-fade-in mb-6 flex gap-3">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -403,7 +688,7 @@ function ChatViewInner() {
                   </div>
                   <div className="flex-1">
                     <div className="rounded-2xl rounded-tl-md border border-border bg-surface-raised p-5">
-                      <div className="mb-3 flex items-center gap-2">
+                      <div className="mb-3 flex items-center gap-2.5">
                         <div className="h-2 w-2 animate-pulse rounded-full bg-prism-400" />
                         <span className="text-xs font-medium text-prism-600">
                           {loadingStep === "retrieving" && "Retrieving sources..."}
@@ -441,7 +726,7 @@ function ChatViewInner() {
                 </div>
               )}
 
-              <div ref={messagesEndRef} />
+              <div className="h-4" />
             </div>
           )}
         </div>
@@ -460,7 +745,7 @@ function ChatViewInner() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask a research question..."
                 rows={1}
-                className="max-h-36 min-h-[48px] w-full resize-none rounded-2xl border border-border bg-surface px-4 py-3 pr-12 text-sm text-tx outline-none transition-all placeholder:text-tx-muted focus:border-prism-300 focus:ring-2 focus:ring-prism-100"
+                className="max-h-36 min-h-[52px] w-full resize-none rounded-2xl border border-border bg-surface px-4 py-3.5 pr-14 text-[15px] text-tx outline-none transition-all placeholder:text-tx-muted focus:border-prism-300 focus:ring-2 focus:ring-prism-100"
                 style={{
                   height: "auto",
                   overflow: "hidden",
@@ -471,15 +756,14 @@ function ChatViewInner() {
                   el.style.height = Math.min(el.scrollHeight, 144) + "px";
                 }}
               />
-              {/* Mode indicator inside input */}
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-prism-50 px-1.5 py-0.5 text-[10px] font-medium text-prism-600">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-prism-50 px-2 py-0.5 text-[10px] font-medium text-prism-600">
                 {mode}
               </span>
             </div>
             <button
               type="submit"
               disabled={!canSubmit}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#131313] text-white shadow-lg transition-all hover:bg-black active:scale-95 disabled:opacity-40"
+              className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-[#131313] text-white shadow-lg transition-all hover:bg-black active:scale-95 disabled:opacity-30 disabled:shadow-none"
             >
               {isLoading ? (
                 <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -495,7 +779,7 @@ function ChatViewInner() {
             </button>
           </form>
           <p className="mx-auto mt-2 max-w-3xl text-center text-[10px] text-tx-muted">
-            Press Enter to send, Shift+Enter for new line. Sources are grounded from ingested docs.
+            Enter to send | Shift+Enter for new line
           </p>
         </div>
       </div>
@@ -511,25 +795,31 @@ function ChatMessage({
   message,
   userId,
   isLast,
+  isTyping: shouldType,
+  onTypingComplete,
   onFollowUp,
   activeCitationId,
   onCitationClick,
+  onScrollRequest,
 }: {
   message: Message;
   userId: string;
   isLast: boolean;
+  isTyping: boolean;
+  onTypingComplete: () => void;
   onFollowUp: (question: string, parentInsightId?: string) => void;
   activeCitationId: string | null;
   onCitationClick: (id: string | null) => void;
+  onScrollRequest: () => void;
 }) {
   if (message.role === "user") {
     return (
-      <div className="mb-6 flex justify-end gap-3">
+      <div className="message-fade-in mb-6 flex justify-end gap-3">
         <div className="max-w-[75%]">
-          <div className="rounded-2xl rounded-br-md bg-[#131313] px-5 py-3.5 text-sm leading-relaxed text-white shadow-sm">
+          <div className="rounded-2xl rounded-br-sm bg-[#131313] px-5 py-3.5 text-[15px] leading-relaxed text-white shadow-sm">
             {message.content}
           </div>
-          <p className="mt-1 text-right text-[10px] text-tx-muted">
+          <p className="mt-1.5 text-right text-[10px] text-tx-muted">
             {message.mode} mode
           </p>
         </div>
@@ -540,10 +830,65 @@ function ChatMessage({
     );
   }
 
+  return (
+    <AssistantMessage
+      message={message}
+      isLast={isLast}
+      shouldType={shouldType}
+      onTypingComplete={onTypingComplete}
+      onFollowUp={onFollowUp}
+      activeCitationId={activeCitationId}
+      onCitationClick={onCitationClick}
+      onScrollRequest={onScrollRequest}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Assistant message with typing effect
+// ---------------------------------------------------------------------------
+
+function AssistantMessage({
+  message,
+  isLast,
+  shouldType,
+  onTypingComplete,
+  onFollowUp,
+  activeCitationId,
+  onCitationClick,
+  onScrollRequest,
+}: {
+  message: Message;
+  isLast: boolean;
+  shouldType: boolean;
+  onTypingComplete: () => void;
+  onFollowUp: (question: string, parentInsightId?: string) => void;
+  activeCitationId: string | null;
+  onCitationClick: (id: string | null) => void;
+  onScrollRequest: () => void;
+}) {
+  const { displayedText, isTyping, skip } = useTypingEffect(
+    message.content,
+    shouldType,
+    45,
+  );
+
   const result = message.result;
 
+  useEffect(() => {
+    if (isTyping) {
+      onScrollRequest();
+    }
+  }, [displayedText, isTyping, onScrollRequest]);
+
+  useEffect(() => {
+    if (!isTyping && shouldType) {
+      onTypingComplete();
+    }
+  }, [isTyping, shouldType, onTypingComplete]);
+
   return (
-    <div className="mb-6 flex gap-3">
+    <div className="message-fade-in mb-6 flex gap-3">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -551,7 +896,7 @@ function ChatMessage({
           <polyline points="2 12 12 17 22 12" />
         </svg>
       </div>
-      <div className="flex-1 space-y-3">
+      <div className="flex-1 space-y-3 overflow-hidden">
         {/* Clarification card */}
         {result?.clarificationPrompt && result.status === "needs_clarification" && (
           <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3">
@@ -570,16 +915,22 @@ function ChatMessage({
         )}
 
         {/* Answer */}
-        <div className="rounded-2xl rounded-tl-md border border-border bg-surface-raised p-5 shadow-sm">
+        <div
+          className="cursor-default rounded-2xl rounded-tl-sm border border-border bg-surface-raised p-5 shadow-soft"
+          onClick={isTyping ? skip : undefined}
+        >
           <MarkdownRenderer
-            content={message.content}
+            content={displayedText}
             citations={result?.citations}
             onCitationClick={onCitationClick}
           />
+          {isTyping && (
+            <span className="typing-cursor ml-0.5 inline-block h-4 w-[2px] translate-y-[3px] bg-prism-500" />
+          )}
         </div>
 
         {/* Diagnostics */}
-        {result && (
+        {!isTyping && result && (
           <div className="flex flex-wrap gap-1.5">
             <Badge
               color={
@@ -609,7 +960,7 @@ function ChatMessage({
         )}
 
         {/* Tradeoffs */}
-        {result && result.tradeoffs.length > 0 && (
+        {!isTyping && result && result.tradeoffs.length > 0 && (
           <div className="rounded-xl border border-border bg-surface p-4">
             <p className="mb-3 text-[10px] font-semibold uppercase tracking-[1px] text-tx-tertiary">
               Tradeoffs
@@ -641,7 +992,7 @@ function ChatMessage({
         )}
 
         {/* Follow-ups */}
-        {isLast && result && result.followUpQuestions.length > 0 && (
+        {!isTyping && isLast && result && result.followUpQuestions.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {result.followUpQuestions.map((q, i) => (
               <button
@@ -656,7 +1007,7 @@ function ChatMessage({
         )}
 
         {/* Sources */}
-        {result && result.citations.length > 0 && (
+        {!isTyping && result && result.citations.length > 0 && (
           <SourcesPanel
             citations={result.citations}
             activeCitationId={activeCitationId}

@@ -14,11 +14,9 @@ export function SourcesPanel({
 }: SourcesPanelProps) {
   const activeRef = useRef<HTMLAnchorElement>(null);
 
-  // Scroll to highlighted citation when activeCitationId changes
   useEffect(() => {
     if (activeCitationId && activeRef.current) {
       activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Clear highlight after 3s
       const timer = setTimeout(() => onCitationClick?.(null), 3000);
       return () => clearTimeout(timer);
     }

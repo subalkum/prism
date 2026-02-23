@@ -11,7 +11,6 @@ type MarkdownRendererProps = {
 
 /**
  * Render inline citation markers [1], [2], etc. as clickable badges.
- * These link to the corresponding source in the SourcesPanel.
  */
 function renderWithCitations(
   text: string,
@@ -21,13 +20,11 @@ function renderWithCitations(
   if (citations.length === 0) return [text];
 
   const parts: (string | React.ReactElement)[] = [];
-  // Match [1], [2], etc.
   const pattern = /\[(\d+)\]/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(text)) !== null) {
-    // Text before the match
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
@@ -83,29 +80,28 @@ export function MarkdownRenderer({ content, citations = [], onCitationClick }: M
       </h4>
     ),
     p: ({ children }) => {
-      // Process text children to render inline citations
       const processed = processChildren(children, citations, onCitationClick);
       return (
-        <p className="mb-3 text-sm leading-relaxed text-tx-secondary last:mb-0">
+        <p className="mb-3 text-[15px] leading-[1.7] text-tx-secondary last:mb-0">
           {processed}
         </p>
       );
     },
     ul: ({ children }) => (
-      <ul className="mb-3 ml-1 space-y-1.5 text-sm text-tx-secondary last:mb-0">
+      <ul className="mb-3 ml-1 space-y-1.5 text-[15px] text-tx-secondary last:mb-0">
         {children}
       </ul>
     ),
     ol: ({ children }) => (
-      <ol className="mb-3 ml-1 list-decimal space-y-1.5 pl-4 text-sm text-tx-secondary last:mb-0">
+      <ol className="mb-3 ml-1 list-decimal space-y-1.5 pl-4 text-[15px] text-tx-secondary last:mb-0">
         {children}
       </ol>
     ),
     li: ({ children }) => {
       const processed = processChildren(children, citations, onCitationClick);
       return (
-        <li className="flex gap-2 leading-relaxed">
-          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-prism-400" />
+        <li className="flex gap-2 leading-[1.7]">
+          <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-prism-400" />
           <span>{processed}</span>
         </li>
       );
@@ -127,7 +123,7 @@ export function MarkdownRenderer({ content, citations = [], onCitationClick }: M
       </a>
     ),
     blockquote: ({ children }) => (
-      <blockquote className="my-3 border-l-2 border-prism-300 bg-prism-50/50 py-2 pl-4 pr-3 text-sm italic text-tx-secondary">
+      <blockquote className="my-3 border-l-2 border-prism-300 bg-prism-50/50 py-2 pl-4 pr-3 text-[15px] italic text-tx-secondary">
         {children}
       </blockquote>
     ),

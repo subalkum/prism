@@ -1,4 +1,5 @@
-import { buildAnswer, estimateTokens, isAmbiguous } from "../agents/researchAgent";
+import { buildAnswer } from "../agents/researchAgent";
+import { estimateTokens, isAmbiguous } from "../lib/utils";
 import { parsePreferenceStatement } from "../memory/preferences";
 import { estimateUsageCost } from "../metrics/usage";
 import { chunkByStrategy } from "../rag/ingest";
@@ -23,7 +24,7 @@ export function runResearchAgentIntegrationSuite() {
   const parsedPreference = parsePreferenceStatement(
     "Remember I prefer code examples and detailed explanations.",
   );
-  assert(parsedPreference.prefersCodeExamples, "Preference parsing should detect code example preference.");
+  assert(parsedPreference.prefersCodeExamples === true, "Preference parsing should detect code example preference.");
   assert(parsedPreference.responseVerbosity === "detailed", "Preference parsing should detect detailed verbosity.");
 
   const answer = buildAnswer({

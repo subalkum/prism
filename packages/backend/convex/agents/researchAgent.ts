@@ -44,7 +44,7 @@ interface SessionData {
   sources: Record<string, { sourceUrl: string; title: string }>;
   recentMemories: string[];
   memoryTags: string[];
-  previousContext: string[];
+  conversationHistory: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,28 +58,12 @@ export function buildAnswer(args: {
   prefersCodeExamples: boolean;
   verbosity: "concise" | "balanced" | "detailed";
 }) {
-  const intro =
-    args.mode === "quick"
-      ? `Quick synthesis for: ${args.query}`
-      : `Deep research synthesis for: ${args.query}`;
+  const intro = `Here's what I found for: ${args.query}`;
   const evidence =
     args.snippets.length > 0
-      ? args.snippets.map((s, i) => `${i + 1}. ${s}`).join("\n")
-      : "No relevant indexed chunks found. Consider ingesting domain docs first.";
-  const guidance =
-    args.mode === "quick"
-      ? "Focus on the highest-signal implementation path."
-      : "Compare at least three alternatives and include failure modes.";
-  const code = args.prefersCodeExamples
-    ? '\n\nExample:\n```ts\nconst chunks = await retrieve(query, { limit: 8 });\nconst answer = synthesize(chunks, { mode: "deep" });\n```'
-    : "";
-  const tail =
-    args.verbosity === "detailed"
-      ? "\n\nDetailed note: validate chunking strategy against precision/recall and monitor cost drift."
-      : args.verbosity === "balanced"
-        ? "\n\nBalanced note: evaluate retrieval quality and cost before scaling."
-        : "";
-  return `${intro}\n\nEvidence:\n${evidence}\n\nRecommendation: ${guidance}${code}${tail}`;
+      ? "\n\nRelevant information:\n" + args.snippets.map((s, i) => `${i + 1}. ${s}`).join("\n")
+      : "";
+  return `${intro}${evidence}\n\nI wasn't able to generate a full response from the AI model for this query. Please try again or rephrase your question.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,32 +77,39 @@ function buildSystemPrompt(args: {
   ragSnippets: Array<{ label: number; title: string; url: string; snippet: string }>;
   memories: string[];
   citationStyle: "inline" | "footnote";
+  query: string;
 }) {
+  // Detect if the query is about programming/technical/code topics
+  const queryLower = args.query.toLowerCase();
+  const isTechnicalQuery = /\b(code|programming|api|function|bug|error|deploy|database|server|frontend|backend|react|python|javascript|typescript|docker|kubernetes|sql|algorithm|data structure|library|framework|sdk|cli|git|css|html|http|rest|graphql|websocket|regex|class|method|variable|compile|runtime|debug|test|lint|build|import|export|module|package|install|npm|pip|cargo)\b/.test(queryLower);
+
   const modeInstruction =
     args.mode === "quick"
-      ? `You are a senior research engineer. Give a focused, high-signal answer. Be concise but precise.`
-      : `You are a senior research engineer conducting a deep technical analysis. Provide a structured report with:
+      ? `You are a knowledgeable AI assistant. Answer the user's question directly and naturally. Be concise but thorough. Match the tone and domain of the question — if it's a casual question, answer casually. If it's technical, be precise and technical.`
+      : `You are a knowledgeable AI assistant conducting an in-depth analysis. Provide a well-structured response:
+
 ## Summary
-Brief overview of findings.
+Brief overview of the key points.
 
 ## Detailed Analysis
-Compare at least 3 approaches with tradeoffs. Use tables where appropriate.
+Explore the topic thoroughly from multiple angles. Use tables or comparisons where they add clarity.
 
-## Recommendations
-Actionable next steps with rationale.
+## Key Takeaways
+The most important things to know.
 
-## Limitations
-What's unknown or uncertain.`;
+If the topic warrants it, mention limitations or areas of uncertainty.`;
 
-  const codeInstruction = args.prefersCodeExamples
-    ? "\nThe user prefers code examples — include concrete, runnable code snippets where relevant. Use TypeScript unless the context suggests otherwise."
-    : "";
+  // Only suggest code when the query is actually about programming AND user prefers it
+  const codeInstruction =
+    args.prefersCodeExamples && isTechnicalQuery
+      ? "\nThe user prefers code examples when relevant — include concrete, runnable code snippets. Use TypeScript unless the context suggests otherwise."
+      : "\nDo NOT include code snippets unless the user explicitly asks for code or the question is specifically about programming.";
 
   const verbosityInstruction =
     args.verbosity === "concise"
       ? "\nKeep the response concise (under 500 words)."
       : args.verbosity === "detailed"
-        ? "\nProvide a detailed response with thorough explanations (1000+ words for deep mode)."
+        ? "\nProvide a detailed response with thorough explanations."
         : "";
 
   // Citation context with numbered labels
@@ -134,9 +125,10 @@ What's unknown or uncertain.`;
       ? `\n\nIMPORTANT: When referencing information from the sources above, use inline citation markers like [1], [2], etc. to indicate which source supports each claim.`
       : "";
 
+  // Memory context — strictly for personalization, NOT topics to cover
   const memoryContext =
     args.memories.length > 0
-      ? `\n\nFrom prior research sessions with this user:\n${args.memories.map((m) => `- ${m}`).join("\n")}`
+      ? `\n\n(Background — the user has previously asked about these topics. Use this ONLY to personalize your tone and depth, do NOT reference or cover these topics in your answer unless directly asked about them):\n${args.memories.map((m) => `- ${m}`).join("\n")}`
       : "";
 
   // Structured output instructions for follow-ups and tradeoffs
@@ -148,8 +140,8 @@ IMPORTANT: At the very end of your response, include this exact block (it will b
 {
   "followUpQuestions": ["<3 context-specific follow-up questions the user might want to ask next>"],
   "tradeoffs": [${args.mode === "deep" ? `
-    {"option": "<approach 1 name>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]},
-    {"option": "<approach 2 name>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]}` : ""}
+    {"option": "<angle/perspective 1>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]},
+    {"option": "<angle/perspective 2>", "pros": ["<pro1>", "<pro2>"], "cons": ["<con1>", "<con2>"]}` : ""}
   ],
   "confidence": <your confidence in this answer from 0.0 to 1.0, be honest about uncertainty>
 }
@@ -268,11 +260,12 @@ export const runResearch = action({
     parentInsightId: v.optional(v.id("insights")),
   },
   handler: async (ctx, args): Promise<Record<string, unknown>> => {
-    // 1. Gather RAG chunks, preferences, and memories from DB
+    // 1. Gather RAG chunks, preferences, memories, and conversation history from DB
     const sessionData: SessionData = await ctx.runQuery(getSessionDataRef, {
       userId: args.userId,
       query: args.query,
       mode: args.mode,
+      sessionId: args.sessionId,
     });
 
     const clarificationRequired = isAmbiguous(args.query);
@@ -301,6 +294,7 @@ export const runResearch = action({
       ragSnippets: citationMap,
       memories: sessionData.recentMemories,
       citationStyle: sessionData.preferences.citationStyle,
+      query: args.query,
     });
 
     const userPrompt = clarificationRequired
@@ -316,6 +310,7 @@ export const runResearch = action({
         systemPrompt,
         userPrompt,
         mode: args.mode,
+        conversationHistory: sessionData.conversationHistory,
         maxTokens: args.mode === "deep" ? 4096 : 1500,
       });
     } catch (err) {

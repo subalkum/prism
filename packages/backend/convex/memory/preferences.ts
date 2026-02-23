@@ -122,7 +122,7 @@ export const getUserPreferences = query({
 
     return (
       profile?.preferences ?? {
-        prefersCodeExamples: true,
+        prefersCodeExamples: false,
         responseVerbosity: "balanced" as const,
         citationStyle: "inline" as const,
       }
@@ -150,7 +150,7 @@ export const rememberPreferenceStatement = mutation({
 
     // Merge: only overwrite fields that were explicitly detected
     const currentPrefs = existing?.preferences ?? {
-      prefersCodeExamples: true,
+      prefersCodeExamples: false,
       responseVerbosity: "balanced" as const,
       citationStyle: "inline" as const,
     };

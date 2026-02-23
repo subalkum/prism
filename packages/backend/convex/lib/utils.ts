@@ -208,40 +208,54 @@ export interface ConfidenceSignals {
 }
 
 export function computeConfidence(signals: ConfidenceSignals): number {
-  // Weight distribution:
-  // RAG quality:       30%
-  // Answer quality:    25%
-  // LLM self-assess:   25%
-  // Source coverage:    20%
+  // Adaptive weight distribution:
+  // When RAG data is available, all 4 signals contribute.
+  // When RAG data is absent (no ingested docs), redistribute weight to
+  // answer quality and LLM self-assessment so the score reflects actual
+  // response quality instead of being stuck at ~25%.
 
-  // 1. RAG signal (30%) — average relevance of retrieved chunks
+  const hasRagData = signals.chunksFound > 0;
+
+  // 1. RAG signal — average relevance of retrieved chunks
   const ragCoverage = signals.maxChunks > 0
     ? signals.chunksFound / signals.maxChunks
     : 0;
   const ragSignal = signals.avgRelevance * 0.6 + ragCoverage * 0.4;
 
-  // 2. Answer quality signal (25%)
+  // 2. Answer quality signal
   const minExpectedLength = signals.mode === "deep" ? 800 : 200;
   const lengthScore = Math.min(1, signals.answerLength / (minExpectedLength * 3));
   const structureBonus = (signals.hasCodeBlocks ? 0.15 : 0) +
     (signals.hasStructuredSections ? 0.15 : 0);
   const answerSignal = Math.min(1, lengthScore * 0.7 + structureBonus);
 
-  // 3. LLM self-assessment (25%)
-  const llmSignal = signals.llmSelfConfidence ?? (signals.llmFailed ? 0.2 : 0.6);
+  // 3. LLM self-assessment (higher fallback — the LLM did produce an answer)
+  const llmSignal = signals.llmSelfConfidence ?? (signals.llmFailed ? 0.2 : 0.7);
 
-  // 4. Source coverage signal (20%)
+  // 4. Source coverage signal
   const sourceSignal = Math.min(1, signals.sourcesCount / 3);
 
-  // Combine
-  let raw = ragSignal * 0.30 + answerSignal * 0.25 + llmSignal * 0.25 + sourceSignal * 0.20;
+  // Adaptive weights based on whether RAG data exists
+  let raw: number;
+  if (hasRagData) {
+    // Full formula with all signals
+    raw = ragSignal * 0.30 + answerSignal * 0.25 + llmSignal * 0.25 + sourceSignal * 0.20;
+  } else {
+    // No RAG data — redistribute weight to signals that are meaningful
+    // Answer quality:    45%  (up from 25%)
+    // LLM self-assess:   40%  (up from 25%)
+    // Source coverage:    15%  (can still get credit from web citations)
+    raw = answerSignal * 0.45 + llmSignal * 0.40 + sourceSignal * 0.15;
+  }
 
   // Penalties
   if (signals.clarificationRequired) raw -= 0.15;
   if (signals.llmFailed) raw -= 0.20;
 
-  // Clamp to [0.10, 0.95]
-  return Math.max(0.10, Math.min(0.95, Number(raw.toFixed(3))));
+  // Floor: 0.35 for non-failed responses (a valid LLM answer deserves better
+  // than 10%), 0.10 for failures
+  const floor = signals.llmFailed ? 0.10 : 0.35;
+  return Math.max(floor, Math.min(0.95, Number(raw.toFixed(3))));
 }
 
 /** Extract LLM self-confidence from a hidden HTML comment in the response */

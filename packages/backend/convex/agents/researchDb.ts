@@ -12,6 +12,7 @@ export const getSessionData = internalQuery({
     userId: v.string(),
     query: v.string(),
     mode: v.union(v.literal("quick"), v.literal("deep")),
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const profile = await ctx.db
@@ -38,19 +39,41 @@ export const getSessionData = internalQuery({
       }
     }
 
-    // Fetch more memories for richer context (10 instead of 5)
+    // Fetch a small set of recent memories (kept minimal to avoid polluting answers)
     const memories = await ctx.db
       .query("episodicMemories")
       .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
       .order("desc")
-      .take(10);
+      .take(3);
 
-    // Also fetch previous conversation messages from this session if a follow-up
-    const previousContext: string[] = [];
+    // Fetch previous conversation messages from this session for context
+    const conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+    if (args.sessionId) {
+      const sid = args.sessionId;
+      const prevMessages = await ctx.db
+        .query("messages")
+        .withIndex("by_session_id", (q) => q.eq("sessionId", sid))
+        .collect();
+
+      // Sort by createdAt and take last 10 messages (5 turns) to keep context manageable
+      const sorted = prevMessages
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .slice(-10);
+
+      for (const msg of sorted) {
+        if (msg.role === "user" || msg.role === "assistant") {
+          conversationHistory.push({
+            role: msg.role,
+            // Truncate long assistant messages to save tokens
+            content: msg.role === "assistant" ? msg.content.slice(0, 800) : msg.content,
+          });
+        }
+      }
+    }
 
     return {
       preferences: profile?.preferences ?? {
-        prefersCodeExamples: true,
+        prefersCodeExamples: false,
         responseVerbosity: "balanced" as const,
         citationStyle: "inline" as const,
       },
@@ -64,7 +87,7 @@ export const getSessionData = internalQuery({
       sources,
       recentMemories: memories.map((m) => m.summary),
       memoryTags: memories.flatMap((m) => m.tags),
-      previousContext,
+      conversationHistory,
     };
   },
 });

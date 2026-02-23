@@ -16,10 +16,17 @@
 export type ProviderName = "gemini" | "groq" | "cerebras";
 export type RouteKind = "primary" | "fallback";
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface LLMRequest {
   systemPrompt: string;
   userPrompt: string;
   mode: "quick" | "deep";
+  /** Previous conversation messages for multi-turn context */
+  conversationHistory?: ChatMessage[];
   /** Max tokens to generate */
   maxTokens?: number;
 }
@@ -45,6 +52,7 @@ interface ProviderConfig {
     systemPrompt: string,
     userPrompt: string,
     maxTokens: number,
+    history: ChatMessage[],
   ) => Promise<{ text: string; promptTokens: number; completionTokens: number }>;
 }
 
@@ -57,6 +65,7 @@ async function callGemini(
   systemPrompt: string,
   userPrompt: string,
   maxTokens: number,
+  history: ChatMessage[],
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -65,9 +74,22 @@ async function callGemini(
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  // Build Gemini contents array with conversation history
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+  for (const msg of history) {
+    contents.push({
+      role: msg.role === "assistant" ? "model" : "user",
+      parts: [{ text: msg.content }],
+    });
+  }
+
+  // Add the current user message
+  contents.push({ role: "user", parts: [{ text: userPrompt }] });
+
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    contents,
     generationConfig: {
       maxOutputTokens: maxTokens,
       temperature: 0.4,
@@ -107,11 +129,23 @@ async function callGroq(
   systemPrompt: string,
   userPrompt: string,
   maxTokens: number,
+  history: ChatMessage[],
 ) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new Error("GROQ_API_KEY is not set");
   }
+
+  // Build OpenAI-format messages array
+  const messages: Array<{ role: string; content: string }> = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  for (const msg of history) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+
+  messages.push({ role: "user", content: userPrompt });
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -121,10 +155,7 @@ async function callGroq(
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+      messages,
       max_tokens: maxTokens,
       temperature: 0.4,
     }),
@@ -156,11 +187,23 @@ async function callCerebras(
   systemPrompt: string,
   userPrompt: string,
   maxTokens: number,
+  history: ChatMessage[],
 ) {
   const apiKey = process.env.CEREBRAS_API_KEY;
   if (!apiKey) {
     throw new Error("CEREBRAS_API_KEY is not set");
   }
+
+  // Build OpenAI-format messages array
+  const messages: Array<{ role: string; content: string }> = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  for (const msg of history) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+
+  messages.push({ role: "user", content: userPrompt });
 
   const res = await fetch(
     "https://api.cerebras.ai/v1/chat/completions",
@@ -172,10 +215,7 @@ async function callCerebras(
       },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        messages,
         max_tokens: maxTokens,
         temperature: 0.4,
       }),
@@ -243,6 +283,7 @@ export async function callLLMWithFallback(
 ): Promise<LLMResponse> {
   const chain = getProviderChain();
   const maxTokens = request.maxTokens ?? (request.mode === "deep" ? 4096 : 1500);
+  const history = request.conversationHistory ?? [];
   const errors: string[] = [];
 
   for (const provider of chain) {
@@ -256,6 +297,7 @@ export async function callLLMWithFallback(
         request.systemPrompt,
         request.userPrompt,
         maxTokens,
+        history,
       );
 
       const latencyMs = Date.now() - start;
