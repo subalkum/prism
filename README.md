@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/pnpm-10.6-F69220?style=for-the-badge&logo=pnpm" alt="pnpm" />
 </p>
 
+try prism : https://prism-gamma-two.vercel.app/
 <h1 align="center">Prism</h1>
 
 <p align="center">
