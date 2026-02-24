@@ -527,5 +527,5 @@ pnpm --filter @ai/backend deploy
 ---
 
 <p align="center">
-  Built with Convex, Next.js, and too much coffee.
+  Built with Convex, Next.js, and too much ☕.
 </p>
