@@ -100,10 +100,10 @@ function useTypingEffect(
 // Wrapper with Suspense for useSearchParams
 // ---------------------------------------------------------------------------
 
-export function ChatView() {
+export function ChatView({ userId }: { userId: string }) {
   return (
     <Suspense fallback={<ChatLoadingShell />}>
-      <ChatViewInner />
+      <ChatViewInner userId={userId} />
     </Suspense>
   );
 }
@@ -132,20 +132,22 @@ function timeAgo(ts: number): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Main ChatView (inner, uses useSearchParams)
 // ---------------------------------------------------------------------------
 
-function ChatViewInner() {
+function ChatViewInner({ userId: initialUserId }: { userId: string }) {
   const searchParams = useSearchParams();
 
   const initialQuery = searchParams.get("q") ?? "";
   const initialMode = (searchParams.get("mode") as ResearchMode) ?? "quick";
-
-  const [userId] = useState("demo-user");
+  const [userId] = useState(initialUserId);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ResearchMode>(initialMode);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
@@ -174,7 +176,9 @@ function ChatViewInner() {
     async function fetchSessions() {
       setLoadingSessions(true);
       try {
-        const res = await fetch(`/api/sessions?userId=${encodeURIComponent(userId)}`);
+        const res = await fetch(
+          `/api/sessions?userId=${encodeURIComponent(userId)}`,
+        );
         if (res.ok) {
           const data = await res.json();
           setSessions(Array.isArray(data) ? data : []);
@@ -282,12 +286,16 @@ function ChatViewInner() {
 
         // Refresh session list
         try {
-          const sessRes = await fetch(`/api/sessions?userId=${encodeURIComponent(userId)}`);
+          const sessRes = await fetch(
+            `/api/sessions?userId=${encodeURIComponent(userId)}`,
+          );
           if (sessRes.ok) {
             const data = await sessRes.json();
             setSessions(Array.isArray(data) ? data : []);
           }
-        } catch { /* non-critical */ }
+        } catch {
+          /* non-critical */
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unexpected error");
       } finally {
@@ -334,7 +342,7 @@ function ChatViewInner() {
       const data = await res.json();
       const loadedMessages: Message[] = [];
 
-      const citationMap = new Map<string, (typeof data.citations)>();
+      const citationMap = new Map<string, typeof data.citations>();
       for (const cite of data.citations ?? []) {
         const key = cite.insightId;
         if (!citationMap.has(key)) citationMap.set(key, []);
@@ -458,21 +466,44 @@ function ChatViewInner() {
       >
         {/* Sidebar header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 transition-opacity hover:opacity-80"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700 shadow-sm">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polygon points="12 2 2 7 12 12 22 7 12 2" />
                 <polyline points="2 17 12 22 22 17" />
                 <polyline points="2 12 12 17 22 12" />
               </svg>
             </div>
-            <span className="text-[15px] font-bold tracking-tight text-tx">prism</span>
+            <span className="text-[15px] font-bold tracking-tight text-tx">
+              prism
+            </span>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
             className="rounded-lg p-1.5 text-tx-muted transition-colors hover:bg-prism-50 hover:text-tx lg:hidden"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -485,7 +516,16 @@ function ChatViewInner() {
             onClick={handleNewChat}
             className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-tx transition-all hover:border-prism-300 hover:bg-prism-50"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -527,7 +567,10 @@ function ChatViewInner() {
           {loadingSessions ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-lg bg-prism-50" />
+                <div
+                  key={i}
+                  className="h-12 animate-pulse rounded-lg bg-prism-50"
+                />
               ))}
             </div>
           ) : sessions.length === 0 ? (
@@ -548,9 +591,11 @@ function ChatViewInner() {
                     {sess.title}
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-tx-muted">
-                    <span className={`inline-block h-1 w-1 rounded-full ${
-                      sess.mode === "deep" ? "bg-warm-400" : "bg-prism-400"
-                    }`} />
+                    <span
+                      className={`inline-block h-1 w-1 rounded-full ${
+                        sess.mode === "deep" ? "bg-warm-400" : "bg-prism-400"
+                      }`}
+                    />
                     {sess.mode}
                     <span className="text-border-strong">|</span>
                     {timeAgo(sess.updatedAt)}
@@ -591,7 +636,16 @@ function ChatViewInner() {
             onClick={() => setSidebarOpen(true)}
             className="rounded-lg p-2 text-tx-muted transition-colors hover:bg-prism-50 hover:text-tx lg:hidden"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="3" y1="12" x2="21" y2="12" />
               <line x1="3" y1="6" x2="21" y2="6" />
               <line x1="3" y1="18" x2="21" y2="18" />
@@ -608,7 +662,8 @@ function ChatViewInner() {
           {lastAssistantResult?.telemetry && (
             <div className="hidden items-center gap-2 md:flex">
               <span className="rounded-full border border-border px-2.5 py-1 text-[10px] font-medium text-tx-muted">
-                {lastAssistantResult.telemetry.provider}/{lastAssistantResult.telemetry.model}
+                {lastAssistantResult.telemetry.provider}/
+                {lastAssistantResult.telemetry.model}
               </span>
             </div>
           )}
@@ -624,7 +679,16 @@ function ChatViewInner() {
             /* Empty state */
             <div className="flex h-full flex-col items-center justify-center px-4">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-prism-500 to-prism-700 shadow-lg shadow-prism-200">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <polygon points="12 2 2 7 12 12 22 7 12 2" />
                   <polyline points="2 17 12 22 22 17" />
                   <polyline points="2 12 12 17 22 12" />
@@ -634,7 +698,8 @@ function ChatViewInner() {
                 What do you want to research?
               </h2>
               <p className="mt-2 max-w-md text-center text-sm text-tx-secondary">
-                Ask anything. Get grounded answers with sources and confidence scores.
+                Ask anything. Get grounded answers with sources and confidence
+                scores.
               </p>
               {/* Example queries */}
               <div className="mt-8 flex max-w-2xl flex-wrap justify-center gap-2">
@@ -680,7 +745,16 @@ function ChatViewInner() {
               {isLoading && (
                 <div className="message-fade-in mb-6 flex gap-3">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <polygon points="12 2 2 7 12 12 22 7 12 2" />
                       <polyline points="2 17 12 22 22 17" />
                       <polyline points="2 12 12 17 22 12" />
@@ -691,9 +765,12 @@ function ChatViewInner() {
                       <div className="mb-3 flex items-center gap-2.5">
                         <div className="h-2 w-2 animate-pulse rounded-full bg-prism-400" />
                         <span className="text-xs font-medium text-prism-600">
-                          {loadingStep === "retrieving" && "Retrieving sources..."}
-                          {loadingStep === "analyzing" && "Analyzing context..."}
-                          {loadingStep === "generating" && "Generating answer..."}
+                          {loadingStep === "retrieving" &&
+                            "Retrieving sources..."}
+                          {loadingStep === "analyzing" &&
+                            "Analyzing context..."}
+                          {loadingStep === "generating" &&
+                            "Generating answer..."}
                         </span>
                       </div>
                       <div className="space-y-2.5">
@@ -715,7 +792,9 @@ function ChatViewInner() {
                     <button
                       onClick={() => {
                         setError(null);
-                        const lastUser = [...messages].reverse().find((m) => m.role === "user");
+                        const lastUser = [...messages]
+                          .reverse()
+                          .find((m) => m.role === "user");
                         if (lastUser) submitQuery(lastUser.content, mode);
                       }}
                       className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium hover:bg-red-50"
@@ -766,12 +845,27 @@ function ChatViewInner() {
               className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-[#131313] text-white shadow-lg transition-all hover:bg-black active:scale-95 disabled:opacity-30 disabled:shadow-none"
             >
               {isLoading ? (
-                <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  className="h-5 w-5 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <circle cx="12" cy="12" r="10" className="opacity-25" />
                   <path d="M4 12a8 8 0 018-8" className="opacity-75" />
                 </svg>
               ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <line x1="22" y1="2" x2="11" y2="13" />
                   <polygon points="22 2 15 22 11 13 2 9 22 2" />
                 </svg>
@@ -890,7 +984,16 @@ function AssistantMessage({
   return (
     <div className="message-fade-in mb-6 flex gap-3">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="white"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <polygon points="12 2 2 7 12 12 22 7 12 2" />
           <polyline points="2 17 12 22 22 17" />
           <polyline points="2 12 12 17 22 12" />
@@ -898,21 +1001,34 @@ function AssistantMessage({
       </div>
       <div className="flex-1 space-y-3 overflow-hidden">
         {/* Clarification card */}
-        {result?.clarificationPrompt && result.status === "needs_clarification" && (
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3">
-            <div className="flex items-start gap-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 shrink-0 text-yellow-600">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-              <div>
-                <p className="text-sm font-medium text-yellow-800">{result.clarificationPrompt.question}</p>
-                <p className="mt-0.5 text-xs text-yellow-600">{result.clarificationPrompt.reason}</p>
+        {result?.clarificationPrompt &&
+          result.status === "needs_clarification" && (
+            <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3">
+              <div className="flex items-start gap-2">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="mt-0.5 shrink-0 text-yellow-600"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-yellow-800">
+                    {result.clarificationPrompt.question}
+                  </p>
+                  <p className="mt-0.5 text-xs text-yellow-600">
+                    {result.clarificationPrompt.reason}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Answer */}
         <div
@@ -968,7 +1084,9 @@ function AssistantMessage({
             <div className="space-y-3">
               {result.tradeoffs.map((t, i) => (
                 <div key={i} className="rounded-lg bg-surface-raised p-3">
-                  <p className="mb-1.5 text-xs font-semibold text-tx">{t.option}</p>
+                  <p className="mb-1.5 text-xs font-semibold text-tx">
+                    {t.option}
+                  </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="space-y-0.5">
                       {t.pros.map((p, j) => (
@@ -992,19 +1110,22 @@ function AssistantMessage({
         )}
 
         {/* Follow-ups */}
-        {!isTyping && isLast && result && result.followUpQuestions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {result.followUpQuestions.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => onFollowUp(q, result.insightId)}
-                className="rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs text-tx-secondary transition-all hover:border-prism-300 hover:bg-prism-50 hover:text-prism-700"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
+        {!isTyping &&
+          isLast &&
+          result &&
+          result.followUpQuestions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {result.followUpQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => onFollowUp(q, result.insightId)}
+                  className="rounded-full border border-border bg-surface-raised px-3 py-1.5 text-xs text-tx-secondary transition-all hover:border-prism-300 hover:bg-prism-50 hover:text-prism-700"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
 
         {/* Sources */}
         {!isTyping && result && result.citations.length > 0 && (
@@ -1057,7 +1178,9 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
         ? "text-yellow-700 bg-yellow-50 border-yellow-200"
         : "text-red-700 bg-red-50 border-red-200";
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium ${cls}`}
+    >
       {pct}% confidence
     </span>
   );

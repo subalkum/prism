@@ -22,18 +22,20 @@ function getConvexClient() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const parsed = requestSchema.parse(body);
+    const {userId,query,mode,sessionId,parentInsightId} = requestSchema.parse(body);
+    if (!userId) throw new Error("User ID is required to run research queries.");
+    if (!query) throw new Error("Query is required to run research queries.");
+    if (!mode) throw new Error("Mode is required to run research queries.");
     const client = getConvexClient();
-
+    console.log(userId,query,mode,sessionId,parentInsightId);
     const runResearchRef =
       "agents/researchAgent:runResearch" as unknown as FunctionReference<"action">;
-
     const result = await client.action(runResearchRef, {
-      userId: "Hello",
-      query: parsed.query,
-      mode: parsed.mode,
-      sessionId: parsed.sessionId as never,
-      parentInsightId: parsed.parentInsightId as never,
+      userId: userId,
+      query: query,
+      mode: mode,
+      sessionId: sessionId as never,
+      parentInsightId: parentInsightId as never,
     });
 
     return NextResponse.json(result, { status: 200 });
