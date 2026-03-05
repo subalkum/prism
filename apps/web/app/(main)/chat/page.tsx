@@ -1,4 +1,5 @@
-import { Providers } from "../providers";
+
+import { Providers } from "@/app/providers";
 import { ChatView } from "@/components/ChatView";
 
 // Prevent static pre-rendering — this page relies on client-only APIs (searchParams, Convex)
