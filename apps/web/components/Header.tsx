@@ -41,7 +41,7 @@ export function Header() {
         {/* Desktop nav links */}
         <div className="hidden items-center gap-1 md:flex">
           {["RESEARCH", "SOURCES", "ABOUT"].map((item) => (
-            <a
+            <Link
               key={item}
               href={`#${item.toLowerCase()}`}
               className="group flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[1.5px] text-neutral-600 transition-colors hover:text-neutral-900"
@@ -62,19 +62,19 @@ export function Header() {
                   strokeLinejoin="round"
                 />
               </svg>
-            </a>
+            </Link>
           ))}
         </div>
 
         {/* CTAs */}
         <div className="hidden items-center gap-3 md:flex">
-          <a
-            href="#research"
+          <Link
+            href="/sign-in"
             className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
           >
             <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
             <span className="relative z-10">Try Prism</span>
-          </a>
+          </Link>
           <a
             href="#about"
             className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-surface px-6 py-2.5 text-sm font-medium text-tx shadow-button-light transition-all duration-500 active:scale-95"
