@@ -27,8 +27,9 @@ export async function POST(request: NextRequest) {
 
     const runResearchRef =
       "agents/researchAgent:runResearch" as unknown as FunctionReference<"action">;
+
     const result = await client.action(runResearchRef, {
-      userId: parsed.userId,
+      userId: "Hello",
       query: parsed.query,
       mode: parsed.mode,
       sessionId: parsed.sessionId as never,

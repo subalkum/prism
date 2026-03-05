@@ -32,11 +32,6 @@ export function HeroSection() {
       ref={sectionRef}
       className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden pt-28 md:pt-36"
     >
-      {/* ============================================= */}
-      {/* TRI-COLOR GRADIENT BACKGROUND                 */}
-      {/* Lavender (left) — Orange (center) — Lavender (right) */}
-      {/* Spans from top of page behind the fixed nav   */}
-      {/* ============================================= */}
       <div className="pointer-events-none absolute inset-0">
         {/* LEFT BLOB — Lavender / Periwinkle blue */}
         <div
@@ -75,7 +70,7 @@ export function HeroSection() {
         />
 
         {/* Bottom fade to clean white */}
-        <div className="absolute bottom-0 left-0 h-40 w-full bg-gradient-to-b from-transparent to-white" />
+        <div className="absolute bottom-0 left-0 h-40 w-full bg-linear-to-b from-transparent to-white" />
       </div>
 
       {/* Content */}
@@ -123,7 +118,7 @@ export function HeroSection() {
         {/* Badge */}
         <div data-reveal className="opacity-0" style={{ animationDelay: "0.2s" }}>
           <div className="relative overflow-hidden rounded-full border border-prism-200/60 bg-white/50 px-5 py-2.5 shadow-glow backdrop-blur-lg">
-            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-linear-to-r from-transparent via-white/60 to-transparent" />
             <p className="relative text-sm font-semibold tracking-wide text-prism-700">
               AI Research Agent
             </p>
