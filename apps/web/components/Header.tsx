@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-
+import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -25,9 +25,21 @@ export function Header() {
     >
       <nav className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700 shadow-sm">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <Link
+          href="/"
+          className="flex items-center gap-2 transition-opacity hover:opacity-80"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-linear-to-br from-prism-500 to-prism-700 shadow-sm">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polygon points="12 2 2 7 12 12 22 7 12 2" />
               <polyline points="2 17 12 22 22 17" />
               <polyline points="2 12 12 17 22 12" />
@@ -41,7 +53,7 @@ export function Header() {
         {/* Desktop nav links */}
         <div className="hidden items-center gap-1 md:flex">
           {["RESEARCH", "SOURCES", "ABOUT"].map((item) => (
-            <a
+            <Link
               key={item}
               href={`#${item.toLowerCase()}`}
               className="group flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[1.5px] text-neutral-600 transition-colors hover:text-neutral-900"
@@ -62,26 +74,42 @@ export function Header() {
                   strokeLinejoin="round"
                 />
               </svg>
-            </a>
+            </Link>
           ))}
         </div>
 
         {/* CTAs */}
         <div className="hidden items-center gap-3 md:flex">
-          <a
-            href="#research"
-            className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
-          >
-            <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
-            <span className="relative z-10">Try Prism</span>
-          </a>
-          <a
+        <a
             href="#about"
             className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-surface px-6 py-2.5 text-sm font-medium text-tx shadow-button-light transition-all duration-500 active:scale-95"
           >
-            <span className="absolute inset-0 rounded-full bg-gradient-to-r from-prism-300 via-prism-100 to-warm-200 opacity-0 shadow-[inset_0_0_12px_2px_rgba(255,255,255,0.8)] transition-opacity duration-700 group-hover:opacity-100" />
+            <span className="absolute inset-0 rounded-full bg-linear-to-r from-prism-300 via-prism-100 to-warm-200 opacity-0 shadow-[inset_0_0_12px_2px_rgba(255,255,255,0.8)] transition-opacity duration-700 group-hover:opacity-100" />
             <span className="relative z-10">Learn More</span>
           </a>
+          <Show when="signed-out">
+
+            <Link
+            href="/sign-in"
+            className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
+          >
+            <span className="absolute inset-0 rounded-full bg-linear-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
+            <span className="relative z-10">Try Prism</span>
+          </Link>
+
+          </Show>
+          <Show when="signed-in">
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "w-10 h-10",
+                  userButtonPopoverCard: "shadow-xl",
+                  userPreviewMainIdentifier: "font-bold",
+                },
+              }}
+            />
+          </Show>
+        
         </div>
 
         {/* Mobile hamburger */}
@@ -116,6 +144,7 @@ export function Header() {
                 {item}
               </a>
             ))}
+
             <div className="mt-2 flex flex-col gap-2">
               <a
                 href="#research"
