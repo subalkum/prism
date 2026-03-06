@@ -1,35 +1,28 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
 
 export function HeroSection() {
-  const sectionRef = useRef<HTMLElement>(null);
+  const container = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-revealed");
-          }
-        });
-      },
-      { threshold: 0.1 },
-    );
-
-    el.querySelectorAll("[data-reveal]").forEach((child) => {
-      observer.observe(child);
-    });
-
-    return () => observer.disconnect();
-  }, []);
+  useGSAP(
+    () => {
+      gsap.to(".hero-anim-item", {
+        y: 0,
+        opacity: 1,
+        duration: 1,
+        stagger: 0.15,
+        ease: "power3.out",
+      });
+    },
+    { scope: container },
+  );
 
   return (
     <section
-      ref={sectionRef}
+      ref={container}
       className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden pt-28 md:pt-36"
     >
       <div className="pointer-events-none absolute inset-0">
@@ -89,11 +82,7 @@ export function HeroSection() {
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center gap-6 px-4 pb-20 md:gap-10">
         {/* Decorative ornamental motif */}
-        <div
-          data-reveal
-          className="opacity-0"
-          style={{ animationDelay: "0.1s" }}
-        >
+        <div className="hero-anim-item opacity-0 translate-y-6">
           <svg
             width="140"
             height="50"
@@ -141,13 +130,9 @@ export function HeroSection() {
         </div>
 
         {/* Badge */}
-        <div
-          data-reveal
-          className="opacity-0"
-          style={{ animationDelay: "0.2s" }}
-        >
+        <div className="hero-anim-item opacity-0 translate-y-6">
           <div className="relative overflow-hidden rounded-full border border-prism-200/60 bg-white/50 px-5 py-2.5 shadow-glow backdrop-blur-lg">
-            <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-linear-to-r from-transparent via-white/60 to-transparent" />
+            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/60 to-transparent" />
             <p className="relative text-sm font-semibold tracking-wide text-prism-700">
               AI Research Agent
             </p>
@@ -155,15 +140,11 @@ export function HeroSection() {
         </div>
 
         {/* Heading */}
-        <div
-          data-reveal
-          className="flex flex-col items-center gap-4 opacity-0"
-          style={{ animationDelay: "0.35s" }}
-        >
-          <h1 className="max-w-4xl text-center font-display text-5xl leading-[1.05] tracking-tight text-tx md:text-7xl lg:text-8xl">
+        <div className="flex flex-col items-center gap-4">
+          <h1 className="hero-anim-item opacity-0 translate-y-6 max-w-4xl text-center font-display text-5xl leading-[1.05] tracking-tight text-tx md:text-7xl lg:text-8xl">
             Research, synthesized.
           </h1>
-          <p className="max-w-[700px] text-center text-lg leading-relaxed text-neutral-500 md:text-xl">
+          <p className="hero-anim-item opacity-0 translate-y-6 max-w-[700px] text-center text-lg leading-relaxed text-neutral-500 md:text-xl">
             Multi-model deep research with source grounding.
             <br className="hidden md:block" />
             Quick answers or thorough analysis, powered by frontier-class
@@ -172,11 +153,7 @@ export function HeroSection() {
         </div>
 
         {/* CTA */}
-        <div
-          data-reveal
-          className="opacity-0"
-          style={{ animationDelay: "0.5s" }}
-        >
+        <div className="hero-anim-item opacity-0 translate-y-6">
           <a
             href="#research"
             className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[#1a1a1a] px-8 py-4 text-lg font-medium text-white shadow-xl transition-all duration-300 hover:bg-black hover:shadow-2xl active:scale-95"
@@ -201,11 +178,7 @@ export function HeroSection() {
         </div>
 
         {/* Feature pills */}
-        <div
-          data-reveal
-          className="mt-4 flex flex-wrap items-center justify-center gap-3 opacity-0"
-          style={{ animationDelay: "0.65s" }}
-        >
+        <div className="hero-anim-item opacity-0 translate-y-6 mt-4 flex flex-wrap items-center justify-center gap-3">
           {[
             "Multi-model fallback",
             "Source grounding",

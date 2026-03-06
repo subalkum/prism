@@ -1,43 +1,70 @@
+"use client";
+
 import Link from "next/link";
+import { useRef } from "react";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 export function Footer() {
+  const containerRef = useRef<HTMLElement>(null);
+
+  useGSAP(
+    () => {
+      gsap.from(".arc-item", {
+        scrollTrigger: {
+          trigger: containerRef.current,
+          start: "top bottom",
+          toggleActions: "play none none reverse",
+        },
+        scale: 0.5,
+        opacity: 0,
+        duration: 1.5,
+        stagger: 0.15,
+        ease: "power3.out",
+      });
+    },
+    { scope: containerRef },
+  );
+
   return (
-    <footer className="relative border-t border-border bg-surface">
+    <footer
+      ref={containerRef}
+      className="relative border-t border-border bg-surface"
+    >
       {/* CTA banner */}
-<div className="relative h-[70vh] flex items-center justify-center overflow-hidden bg-linear-to-br from-orange-400 via-orange-300 to-orange-500">
+      <div className="relative h-[70vh] flex items-center justify-center overflow-hidden bg-linear-to-br from-orange-400 via-orange-300 to-orange-500">
+        {/* background arcs */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="arc-item absolute -left-[300px] -bottom-[300px] w-[800px] h-[800px] rounded-full border-120 border-orange-200 opacity-40"></div>
+          <div className="arc-item absolute -left-[300px] -bottom-[300px] w-[600px] h-[600px] rounded-full border-100 border-orange-200 opacity-40"></div>
 
-{/* background arcs */}
-<div className="pointer-events-none absolute inset-0">
+          <div className="arc-item absolute -right-[300px] top-[50px] w-[800px] h-[800px] rounded-full border-120 border-orange-200 opacity-40"></div>
+          <div className="arc-item absolute -right-[300px] top-[300px] w-[600px] h-[600px] rounded-full border-100 border-orange-200 opacity-40"></div>
+        </div>
 
-  <div className="absolute -left-[300px] -bottom-[300px] w-[800px] h-[800px] rounded-full border-120 border-orange-200 opacity-40"></div>
-  <div className="absolute -left-[300px] -bottom-[300px] w-[600px] h-[600px] rounded-full border-100 border-orange-200 opacity-40"></div>
-
-  <div className="absolute -right-[300px] top-[50px] w-[800px] h-[800px] rounded-full border-120 border-orange-200 opacity-40"></div>
-  <div className="absolute -right-[300px] top-[300px] w-[600px] h-[600px] rounded-full border-100 border-orange-200 opacity-40"></div>
-
-</div>
-
-{/* center card */}
-<div className="relative mx-auto max-w-md rounded-xl bg-[#e7dfd4] px-10 py-12 text-center shadow-xl">
-
-  <h2 className="text-4xl font-semibold text-gray-800">
-    So, what are we building?
-  </h2>
-  <Link href={"/#research"}>
-  <button className="mt-8 inline-flex items-center gap-3 rounded-full bg-black px-6 py-3 text-white transition hover:scale-105">
-
-    Get started
-
-    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-lime-300 text-black">
-      →
-    </span>
-
-  </button>
-  </Link>
-
-</div>
-
-</div>
+        {/* center card */}
+        <div className="relative mx-auto max-w-md space-y-2 rounded-xl bg-[#e7dfd4] px-10 py-12 text-center shadow-xl">
+          <h2 className="text-4xl font-bold text-black">
+            Start researching with Prism.
+          </h2>
+          <p className="text-muted-foreground">
+            Multi-model deep research with source grounding, cost tracking, and
+            episodic memory.
+          </p>
+          <Link
+            href="/#research"
+            className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
+          >
+            <span className="absolute inset-0 rounded-full bg-linear-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
+            <span className="relative z-10">Get Started Now</span>
+          </Link>
+        </div>
+      </div>
 
       {/* Footer links */}
       <div className="border-t border-border">
