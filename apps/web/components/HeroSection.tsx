@@ -44,30 +44,23 @@ export function HeroSection() {
 
         {/* CENTER BLOB — Warm orange / peach / amber (most prominent) */}
         <div
-          className="absolute left-1/2 -top-[5%] h-[550px] w-[38%] -translate-x-1/2 opacity-60 blur-[80px]"
+          className="absolute left-1/2 -top-[5%] h-[300px] w-full -translate-x-1/2 blur-2xl"
           style={{
             background:
-              "radial-gradient(ellipse at center, #e8922f 0%, #f0a050 25%, #f4b87a 45%, #fcd4a8 65%, transparent 85%)",
+              "radial-gradient(ellipse at center, #5f6bd1 0%, #7b86e5 35%, #bfc8f0 60%, transparent 85%)",
           }}
         />
-
-        {/* RIGHT BLOB — Lavender / Periwinkle blue (mirrors left) */}
         <div
-          className="absolute -right-[5%] -top-[5%] h-[600px] w-[45%] opacity-50 blur-[100px]"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, #bfc8f0 0%, #d5ddfb 40%, transparent 70%)",
-          }}
-        />
+  className="absolute left-1/2 -top-[5%] h-[125px] w-[50%] -translate-x-1/2 blur-[47px]"
+  style={{
+    background:
+      "radial-gradient(ellipse at center, #a85610 0%, #c96b18 25%, #e8922f 45%, #f0a050 65%, transparent 90%)",
+  }}
+/>
 
-        {/* Subtle warm highlight for more depth in center-top */}
-        <div
-          className="absolute left-1/2 top-0 h-[300px] w-[25%] -translate-x-1/2 opacity-30 blur-[60px]"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, #f59e42 0%, #fbbf6a 40%, transparent 70%)",
-          }}
-        />
+
+       
+
 
         {/* Bottom fade to clean white */}
         <div className="absolute bottom-0 left-0 h-40 w-full bg-linear-to-b from-transparent to-white" />

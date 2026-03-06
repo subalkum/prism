@@ -56,7 +56,7 @@ export function Header() {
             <Link
               key={item}
               href={`#${item.toLowerCase()}`}
-              className="group flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[1.5px] text-neutral-600 transition-colors hover:text-neutral-900"
+              className="group flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold uppercase tracking-[1.5px] text-black transition-colors hover:text-neutral-900"
             >
               {item}
               <svg
