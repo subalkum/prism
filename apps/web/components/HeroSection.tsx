@@ -42,34 +42,58 @@ export function HeroSection() {
           }}
         />
 
-        {/* CENTER BLOB — Warm orange / peach / amber (most prominent) */}
+        {/* RIGHT BLOB — Lavender / Periwinkle blue */}
         <div
-          className="absolute left-1/2 -top-[5%] h-[300px] w-full -translate-x-1/2 blur-2xl"
+          className="absolute -right-[5%] -top-[5%] h-[600px] w-[45%] opacity-50 blur-[100px]"
           style={{
             background:
-              "radial-gradient(ellipse at center, #5f6bd1 0%, #7b86e5 35%, #bfc8f0 60%, transparent 85%)",
+              "radial-gradient(ellipse at center, #bfc8f0 0%, #d5ddfb 40%, transparent 70%)",
           }}
         />
+
+        {/* CENTER BLOB - Redesigned as a soft downward triangle (curvy beam) */}
+        <div className="absolute left-1/2 top-0 h-[600px] w-full -translate-x-1/2 opacity-70 blur-[75px]">
+          {/* Top wide curve */}
+          <div
+            className="absolute left-1/2 -top-[5%] h-[250px] w-full -translate-x-1/2 rounded-[100%]"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, #5f6bd1 0%, #6c79e0 30%, #8e98ee 55%, #c8cff7 80%, transparent 95%)",
+            }}
+          />
+
+          {/* Downward pointing triangle/beam */}
+          <div
+            className="absolute left-1/2 top-[120px] h-[300px] w-[800px] -translate-x-1/2"
+            style={{
+              clipPath: "polygon(20% 0, 80% 0, 50% 100%)",
+              background:
+                "linear-gradient(to bottom, #6c79e0 0%, #8e98ee 35%, #c8cff7 65%, transparent 100%)",
+            }}
+          />
+        </div>
+
+        {/* Orange accent glow - increased intensity */}
         <div
-  className="absolute left-1/2 -top-[5%] h-[125px] w-[50%] -translate-x-1/2 blur-[47px]"
-  style={{
-    background:
-      "radial-gradient(ellipse at center, #a85610 0%, #c96b18 25%, #e8922f 45%, #f0a050 65%, transparent 90%)",
-  }}
-/>
+          className="absolute left-1/2 -top-[5%] h-[130px] w-[70%] -translate-x-1/2 opacity-100 blur-[40px]"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, #c96b18 0%, #e8922f 25%, #f0a050 45%, #fac47d 65%, transparent 90%)",
+          }}
+        />
 
-
-       
-
-
-        {/* Bottom fade to clean white */}
-        <div className="absolute bottom-0 left-0 h-40 w-full bg-linear-to-b from-transparent to-white" />
+        {/* Bottom fade to clean background */}
+        <div className="absolute bottom-0 left-0 h-40 w-full bg-linear-to-b from-transparent to-background" />
       </div>
 
       {/* Content */}
       <div className="relative z-10 flex flex-col items-center gap-6 px-4 pb-20 md:gap-10">
         {/* Decorative ornamental motif */}
-        <div data-reveal className="opacity-0" style={{ animationDelay: "0.1s" }}>
+        <div
+          data-reveal
+          className="opacity-0"
+          style={{ animationDelay: "0.1s" }}
+        >
           <svg
             width="140"
             height="50"
@@ -91,7 +115,15 @@ export function HeroSection() {
               fill="none"
             />
             {/* Center line */}
-            <line x1="62" y1="25" x2="78" y2="25" stroke="white" strokeWidth="1" opacity="0.5" />
+            <line
+              x1="62"
+              y1="25"
+              x2="78"
+              y2="25"
+              stroke="white"
+              strokeWidth="1"
+              opacity="0.5"
+            />
             {/* Right scroll */}
             <path
               d="M85 25c6-14 18-18 28-14s9 20-2 24-22-2-26-10z"
@@ -109,7 +141,11 @@ export function HeroSection() {
         </div>
 
         {/* Badge */}
-        <div data-reveal className="opacity-0" style={{ animationDelay: "0.2s" }}>
+        <div
+          data-reveal
+          className="opacity-0"
+          style={{ animationDelay: "0.2s" }}
+        >
           <div className="relative overflow-hidden rounded-full border border-prism-200/60 bg-white/50 px-5 py-2.5 shadow-glow backdrop-blur-lg">
             <span className="pointer-events-none absolute inset-0 -translate-x-full animate-shimmer bg-linear-to-r from-transparent via-white/60 to-transparent" />
             <p className="relative text-sm font-semibold tracking-wide text-prism-700">
@@ -130,12 +166,17 @@ export function HeroSection() {
           <p className="max-w-[700px] text-center text-lg leading-relaxed text-neutral-500 md:text-xl">
             Multi-model deep research with source grounding.
             <br className="hidden md:block" />
-            Quick answers or thorough analysis, powered by frontier-class models.
+            Quick answers or thorough analysis, powered by frontier-class
+            models.
           </p>
         </div>
 
         {/* CTA */}
-        <div data-reveal className="opacity-0" style={{ animationDelay: "0.5s" }}>
+        <div
+          data-reveal
+          className="opacity-0"
+          style={{ animationDelay: "0.5s" }}
+        >
           <a
             href="#research"
             className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[#1a1a1a] px-8 py-4 text-lg font-medium text-white shadow-xl transition-all duration-300 hover:bg-black hover:shadow-2xl active:scale-95"

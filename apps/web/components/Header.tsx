@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import {Show, UserButton } from "@clerk/nextjs";
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
