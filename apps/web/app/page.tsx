@@ -4,6 +4,8 @@ import { HeroSection } from "@/components/HeroSection";
 import { ResearchInput } from "@/components/ResearchInput";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { Footer } from "@/components/Footer";
+import FAQ from "@/components/FAQ";
+
 
 export default function HomePage() {
   return (
@@ -13,6 +15,7 @@ export default function HomePage() {
         <HeroSection />
         <ResearchInput />
         <FeaturesSection />
+        <FAQ/>
       </main>
       <Footer />
     </Providers>

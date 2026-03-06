@@ -17,7 +17,6 @@ export async function GET(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ message: "userId is required" }, { status: 400 });
     }
-
     const client = getConvexClient();
     const ref = "agents/sessions:getUserSessions" as unknown as FunctionReference<"query">;
     const sessions = await client.query(ref, { userId, limit: 30 });
