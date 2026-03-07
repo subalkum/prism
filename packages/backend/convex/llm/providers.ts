@@ -1,6 +1,6 @@
 /**
  * Real LLM provider client with mode-aware fallback chains:
- * - quick: Gemini (primary) -> OpenAI -> Groq -> Cerebras
+ * - quick: Gemini (primary) -> Groq -> Cerebras
  * - deep: OpenAI (primary) -> Gemini -> Groq -> Cerebras
  *
  * NOTE: "use node" is NOT set here — this file is imported by researchAgent.ts
@@ -417,7 +417,7 @@ function getProviderChainForMode(mode: "quick" | "deep"): ProviderConfig[] {
     }));
   }
 
-  const quickOrder = ["gemini", "openai", "groq", "cerebras"] as const;
+  const quickOrder = ["gemini", "groq", "cerebras"] as const;
   const reordered = quickOrder
     .map((name) => providers.find((provider) => provider.name === name))
     .filter((provider): provider is ProviderConfig => provider !== undefined);
