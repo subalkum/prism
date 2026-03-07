@@ -12,7 +12,7 @@ coverage/
 .env
 .env.local
 .env.*.local
-.Ds_Store
+.DS_Store
 # Convex generated files
 packages/backend/convex/_generated/
 
