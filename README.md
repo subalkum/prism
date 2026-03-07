@@ -371,7 +371,8 @@ NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
 **Backend** (set in Convex dashboard or `.env`):
 ```env
 CONVEX_DEPLOYMENT=your-deployment-name
-GEMINI_API_KEY=your-gemini-key
+OPENAI_API_KEY=your-openai-key      # primary for deep research
+GEMINI_API_KEY=your-gemini-key      # primary for quick research, deep fallback
 GROQ_API_KEY=your-groq-key          # optional fallback
 CEREBRAS_API_KEY=your-cerebras-key   # optional fallback
 ```
@@ -412,7 +413,7 @@ Open [http://localhost:3000](http://localhost:3000) and start researching.
 pnpm --filter @ai/backend deploy
 
 # Set environment variables in Convex dashboard:
-#   GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
+#   OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
 ```
 
 **Deployment order:** Convex backend first, then Vercel frontend.

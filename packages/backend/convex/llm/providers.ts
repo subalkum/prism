@@ -1,5 +1,7 @@
 /**
- * Real LLM provider client with Gemini (primary) -> Groq -> Cerebras fallback chain.
+ * Real LLM provider client with mode-aware fallback chains:
+ * - quick: Gemini (primary) -> OpenAI -> Groq -> Cerebras
+ * - deep: OpenAI (primary) -> Gemini -> Groq -> Cerebras
  *
  * NOTE: "use node" is NOT set here — this file is imported by researchAgent.ts
  * which has "use node". Convex bundles imports into the caller's runtime.
@@ -13,7 +15,7 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export type ProviderName = "gemini" | "groq" | "cerebras";
+export type ProviderName = "openai" | "gemini" | "groq" | "cerebras";
 export type RouteKind = "primary" | "fallback";
 
 export interface ChatMessage {
@@ -53,7 +55,90 @@ interface ProviderConfig {
     userPrompt: string,
     maxTokens: number,
     history: ChatMessage[],
+    timeoutMs: number,
   ) => Promise<{ text: string; promptTokens: number; completionTokens: number }>;
+}
+
+// ---------------------------------------------------------------------------
+// Timeout helper — creates an AbortSignal that fires after `ms` milliseconds
+// ---------------------------------------------------------------------------
+
+function createTimeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI (OpenAI-compatible – api.openai.com)
+// ---------------------------------------------------------------------------
+
+async function callOpenAI(
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  history: ChatMessage[],
+  timeoutMs: number,
+) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  const messages: Array<{ role: string; content: string }> = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  for (const msg of history) {
+    messages.push({ role: msg.role, content: msg.content });
+  }
+
+  messages.push({ role: "user", content: userPrompt });
+
+  const { signal, clear } = createTimeoutSignal(timeoutMs);
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: maxTokens,
+        temperature: 0.4,
+      }),
+      signal,
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`OpenAI ${res.status}: ${errorBody.slice(0, 300)}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json();
+    const text: string = json?.choices?.[0]?.message?.content ?? "";
+    const usage = json?.usage ?? {};
+
+    return {
+      text,
+      promptTokens: (usage.prompt_tokens as number) ?? estimateTokens(systemPrompt + userPrompt),
+      completionTokens: (usage.completion_tokens as number) ?? estimateTokens(text),
+    };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`OpenAI timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clear();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +151,9 @@ async function callGemini(
   userPrompt: string,
   maxTokens: number,
   history: ChatMessage[],
+  timeoutMs: number,
 ) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set");
   }
@@ -96,28 +182,39 @@ async function callGemini(
     },
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const { signal, clear } = createTimeoutSignal(timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errorBody.slice(0, 300)}`);
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`Gemini ${res.status}: ${errorBody.slice(0, 300)}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json();
+    const text: string =
+      json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const usage = json?.usageMetadata ?? {};
+
+    return {
+      text,
+      promptTokens: (usage.promptTokenCount as number) ?? estimateTokens(userPrompt + systemPrompt),
+      completionTokens: (usage.candidatesTokenCount as number) ?? estimateTokens(text),
+    };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Gemini timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clear();
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json: any = await res.json();
-  const text: string =
-    json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const usage = json?.usageMetadata ?? {};
-
-  return {
-    text,
-    promptTokens: (usage.promptTokenCount as number) ?? estimateTokens(userPrompt + systemPrompt),
-    completionTokens: (usage.candidatesTokenCount as number) ?? estimateTokens(text),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +227,9 @@ async function callGroq(
   userPrompt: string,
   maxTokens: number,
   history: ChatMessage[],
+  timeoutMs: number,
 ) {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("GROQ_API_KEY is not set");
   }
@@ -147,35 +245,46 @@ async function callGroq(
 
   messages.push({ role: "user", content: userPrompt });
 
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.4,
-    }),
-  });
+  const { signal, clear } = createTimeoutSignal(timeoutMs);
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: maxTokens,
+        temperature: 0.4,
+      }),
+      signal,
+    });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Groq ${res.status}: ${errorBody.slice(0, 300)}`);
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`Groq ${res.status}: ${errorBody.slice(0, 300)}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json();
+    const text: string = json?.choices?.[0]?.message?.content ?? "";
+    const usage = json?.usage ?? {};
+
+    return {
+      text,
+      promptTokens: (usage.prompt_tokens as number) ?? estimateTokens(systemPrompt + userPrompt),
+      completionTokens: (usage.completion_tokens as number) ?? estimateTokens(text),
+    };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Groq timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clear();
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json: any = await res.json();
-  const text: string = json?.choices?.[0]?.message?.content ?? "";
-  const usage = json?.usage ?? {};
-
-  return {
-    text,
-    promptTokens: (usage.prompt_tokens as number) ?? estimateTokens(systemPrompt + userPrompt),
-    completionTokens: (usage.completion_tokens as number) ?? estimateTokens(text),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -188,8 +297,9 @@ async function callCerebras(
   userPrompt: string,
   maxTokens: number,
   history: ChatMessage[],
+  timeoutMs: number,
 ) {
-  const apiKey = process.env.CEREBRAS_API_KEY;
+  const apiKey = process.env.CEREBRAS_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("CEREBRAS_API_KEY is not set");
   }
@@ -205,38 +315,49 @@ async function callCerebras(
 
   messages.push({ role: "user", content: userPrompt });
 
-  const res = await fetch(
-    "https://api.cerebras.ai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+  const { signal, clear } = createTimeoutSignal(timeoutMs);
+  try {
+    const res = await fetch(
+      "https://api.cerebras.ai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: maxTokens,
+          temperature: 0.4,
+        }),
+        signal,
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature: 0.4,
-      }),
-    },
-  );
+    );
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Cerebras ${res.status}: ${errorBody.slice(0, 300)}`);
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`Cerebras ${res.status}: ${errorBody.slice(0, 300)}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json();
+    const text: string = json?.choices?.[0]?.message?.content ?? "";
+    const usage = json?.usage ?? {};
+
+    return {
+      text,
+      promptTokens: (usage.prompt_tokens as number) ?? estimateTokens(systemPrompt + userPrompt),
+      completionTokens: (usage.completion_tokens as number) ?? estimateTokens(text),
+    };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Cerebras timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clear();
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json: any = await res.json();
-  const text: string = json?.choices?.[0]?.message?.content ?? "";
-  const usage = json?.usage ?? {};
-
-  return {
-    text,
-    promptTokens: (usage.prompt_tokens as number) ?? estimateTokens(systemPrompt + userPrompt),
-    completionTokens: (usage.completion_tokens as number) ?? estimateTokens(text),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,14 +367,21 @@ async function callCerebras(
 import { estimateTokens } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
-// Fallback chain: Gemini -> Groq -> Cerebras
+// Fallback chain: mode-aware provider ordering
 // ---------------------------------------------------------------------------
 
 function getProviderChain(): ProviderConfig[] {
   return [
     {
-      name: "gemini",
+      name: "openai",
       route: "primary",
+      quickModel: "gpt-4.1-mini",
+      deepModel: "gpt-4.1",
+      call: callOpenAI,
+    },
+    {
+      name: "gemini",
+      route: "fallback",
       quickModel: "gemini-2.0-flash",
       deepModel: "gemini-2.5-pro-preview-05-06",
       call: callGemini,
@@ -275,15 +403,46 @@ function getProviderChain(): ProviderConfig[] {
   ];
 }
 
+function getRouteKind(index: number): RouteKind {
+  return index === 0 ? "primary" : "fallback";
+}
+
+function getProviderChainForMode(mode: "quick" | "deep"): ProviderConfig[] {
+  const providers = getProviderChain();
+
+  if (mode === "deep") {
+    return providers.map((provider, index) => ({
+      ...provider,
+      route: getRouteKind(index),
+    }));
+  }
+
+  const quickOrder = ["gemini", "openai", "groq", "cerebras"] as const;
+  const reordered = quickOrder
+    .map((name) => providers.find((provider) => provider.name === name))
+    .filter((provider): provider is ProviderConfig => provider !== undefined);
+
+  return reordered.map((provider, index) => ({
+    ...provider,
+    route: getRouteKind(index),
+  }));
+}
+
+/** Timeout per provider: quick mode = 30s, deep mode = 120s */
+function getTimeoutMs(mode: "quick" | "deep"): number {
+  return mode === "deep" ? 120_000 : 30_000;
+}
+
 /**
  * Try each provider in order. Return on first success, or throw if all fail.
  */
 export async function callLLMWithFallback(
   request: LLMRequest,
 ): Promise<LLMResponse> {
-  const chain = getProviderChain();
+  const chain = getProviderChainForMode(request.mode);
   const maxTokens = request.maxTokens ?? (request.mode === "deep" ? 4096 : 1500);
   const history = request.conversationHistory ?? [];
+  const timeoutMs = getTimeoutMs(request.mode);
   const errors: string[] = [];
 
   for (const provider of chain) {
@@ -298,9 +457,13 @@ export async function callLLMWithFallback(
         request.userPrompt,
         maxTokens,
         history,
+        timeoutMs,
       );
 
       const latencyMs = Date.now() - start;
+      console.log(
+        `[LLM] ${provider.name}/${model} succeeded in ${latencyMs}ms (route: ${provider.route})`,
+      );
       return {
         text: result.text,
         provider: provider.name,
@@ -313,7 +476,11 @@ export async function callLLMWithFallback(
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const elapsed = Date.now() - start;
       errors.push(`[${provider.name}/${model}] ${msg}`);
+      console.error(
+        `[LLM] ${provider.name}/${model} FAILED after ${elapsed}ms: ${msg}`,
+      );
       // continue to next provider
     }
   }

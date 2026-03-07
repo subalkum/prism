@@ -434,6 +434,8 @@ export const runResearch = action({
     const estimatedCostUsd = estimateCost(
       llmResponse.model,
       llmResponse.totalTokens,
+      llmResponse.promptTokens,
+      llmResponse.completionTokens,
     );
 
     const responseCandidate = {

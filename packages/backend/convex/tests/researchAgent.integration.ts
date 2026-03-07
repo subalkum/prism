@@ -34,14 +34,19 @@ export function runResearchAgentIntegrationSuite() {
     prefersCodeExamples: true,
     verbosity: "balanced",
   });
-  assert(answer.includes("Deep research synthesis"), "Deep mode answer should include deep synthesis marker.");
+  assert(answer.includes("Here's what I found for:"), "Deep mode answer should include intro marker.");
 
   assert(isAmbiguous("What about this?"), "Short vague prompt should be considered ambiguous.");
   assert(!isAmbiguous("Compare LoRA and full fine-tuning with token cost and latency tradeoffs"), "Specific prompt should not be considered ambiguous.");
 
   const promptTokens = estimateTokens("short prompt");
   const completionTokens = estimateTokens(answer);
-  const cost = estimateUsageCost("gemini", promptTokens + completionTokens);
+  const cost = estimateUsageCost(
+    "gpt-4.1",
+    promptTokens + completionTokens,
+    promptTokens,
+    completionTokens,
+  );
   assert(cost >= 0, "Cost estimation should always be non-negative.");
 
   return {

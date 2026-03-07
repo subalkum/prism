@@ -14,6 +14,7 @@ import Link from "next/link";
 import type { ResearchResponse } from "@ai/shared/schemas/researchResponse";
 import { SourcesPanel } from "@/components/SourcesPanel";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { DocumentIngest } from "@/components/DocumentIngest";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,6 +159,7 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
   const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
+  const [isStreamingText, setIsStreamingText] = useState(false);
 
   // Chat history
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -230,7 +232,10 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
     };
   }, [isLoading]);
 
-  // Submit a query
+  // Streaming message ref — holds the id of the message being streamed
+  const streamingMsgIdRef = useRef<string | null>(null);
+
+  // Submit a query — uses SSE streaming endpoint
   const submitQuery = useCallback(
     async (q: string, m: ResearchMode, parentInsightId?: string) => {
       if (!q.trim() || isLoading) return;
@@ -248,8 +253,19 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
       setError(null);
       scrollToBottom(true);
 
+      // Create a placeholder assistant message for streaming
+      const newMsgId = `asst-${Date.now()}`;
+      streamingMsgIdRef.current = newMsgId;
+      const placeholderMsg: Message = {
+        id: newMsgId,
+        role: "assistant",
+        content: "",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, placeholderMsg]);
+
       try {
-        const response = await fetch("/api/research", {
+        const response = await fetch("/api/research/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -261,27 +277,97 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
           }),
         });
 
-        const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.message ?? "Research query failed.");
+          const errorPayload = await response.json().catch(() => null);
+          throw new Error(errorPayload?.message ?? "Research query failed.");
         }
 
-        const typed = payload as ResearchResult;
-        if (typed.sessionId) {
-          setSessionId(typed.sessionId);
-          setActiveSessionId(typed.sessionId);
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream available.");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamedText = "";
+        let fullResult: ResearchResult | null = null;
+
+        // Read the SSE stream
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE events from buffer
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          let eventType = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ") && eventType) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                switch (eventType) {
+                  case "status":
+                    setLoadingStep(data.step as LoadingStep);
+                    break;
+
+                  case "chunk":
+                    streamedText += data.text;
+                    setIsStreamingText(true);
+                    // Update the assistant message content in-place
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === newMsgId
+                          ? { ...msg, content: streamedText }
+                          : msg,
+                      ),
+                    );
+                    scrollToBottom();
+                    break;
+
+                  case "result":
+                    fullResult = data as ResearchResult;
+                    if (fullResult?.sessionId) {
+                      setSessionId(fullResult.sessionId);
+                      setActiveSessionId(fullResult.sessionId);
+                    }
+                    // Update the message with full result metadata
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === newMsgId
+                          ? {
+                              ...msg,
+                              content: fullResult?.answer ?? streamedText,
+                              result: fullResult ?? undefined,
+                            }
+                          : msg,
+                      ),
+                    );
+                    break;
+
+                  case "error":
+                    throw new Error(data.message);
+
+                  case "done":
+                    break;
+                }
+              } catch (parseErr) {
+                // If it's a thrown error from above, re-throw it
+                if (parseErr instanceof Error && parseErr.message !== "Unexpected token") {
+                  throw parseErr;
+                }
+                // Otherwise skip malformed SSE data
+              }
+              eventType = "";
+            }
+          }
         }
 
-        const newMsgId = `asst-${Date.now()}`;
-        const assistantMsg: Message = {
-          id: newMsgId,
-          role: "assistant",
-          content: typed.answer,
-          result: typed,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-        setTypingMessageId(newMsgId);
+        streamingMsgIdRef.current = null;
+        setIsStreamingText(false);
         scrollToBottom(true);
 
         // Refresh session list
@@ -297,6 +383,10 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
           /* non-critical */
         }
       } catch (err) {
+        streamingMsgIdRef.current = null;
+        setIsStreamingText(false);
+        // Remove the placeholder message on error
+        setMessages((prev) => prev.filter((msg) => msg.id !== newMsgId));
         setError(err instanceof Error ? err.message : "Unexpected error");
       } finally {
         setIsLoading(false);
@@ -559,6 +649,11 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
           </div>
         </div>
 
+        {/* ─── Knowledge Base ─── */}
+        <div className="px-3 pb-3">
+          <DocumentIngest userId={userId} />
+        </div>
+
         {/* ─── Chat history ─── */}
         <div className="flex-1 overflow-y-auto px-3 pb-3">
           <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[1.5px] text-tx-muted">
@@ -731,6 +826,7 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
                   userId={userId}
                   isLast={idx === messages.length - 1}
                   isTyping={msg.id === typingMessageId}
+                  isStreaming={msg.id === streamingMsgIdRef.current}
                   onTypingComplete={() => {
                     if (msg.id === typingMessageId) setTypingMessageId(null);
                   }}
@@ -741,8 +837,8 @@ function ChatViewInner({ userId: initialUserId }: { userId: string }) {
                 />
               ))}
 
-              {/* Loading indicator */}
-              {isLoading && (
+              {/* Loading indicator — hide once streaming text starts arriving */}
+              {isLoading && !isStreamingText && (
                 <div className="message-fade-in mb-6 flex gap-3">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-prism-500 to-prism-700">
                     <svg
@@ -890,6 +986,7 @@ function ChatMessage({
   userId,
   isLast,
   isTyping: shouldType,
+  isStreaming,
   onTypingComplete,
   onFollowUp,
   activeCitationId,
@@ -900,6 +997,7 @@ function ChatMessage({
   userId: string;
   isLast: boolean;
   isTyping: boolean;
+  isStreaming: boolean;
   onTypingComplete: () => void;
   onFollowUp: (question: string, parentInsightId?: string) => void;
   activeCitationId: string | null;
@@ -929,6 +1027,7 @@ function ChatMessage({
       message={message}
       isLast={isLast}
       shouldType={shouldType}
+      isStreaming={isStreaming}
       onTypingComplete={onTypingComplete}
       onFollowUp={onFollowUp}
       activeCitationId={activeCitationId}
@@ -946,6 +1045,7 @@ function AssistantMessage({
   message,
   isLast,
   shouldType,
+  isStreaming,
   onTypingComplete,
   onFollowUp,
   activeCitationId,
@@ -955,31 +1055,38 @@ function AssistantMessage({
   message: Message;
   isLast: boolean;
   shouldType: boolean;
+  isStreaming: boolean;
   onTypingComplete: () => void;
   onFollowUp: (question: string, parentInsightId?: string) => void;
   activeCitationId: string | null;
   onCitationClick: (id: string | null) => void;
   onScrollRequest: () => void;
 }) {
+  // If streaming, don't use typing effect — text arrives incrementally from SSE
+  const enableTyping = shouldType && !isStreaming;
   const { displayedText, isTyping, skip } = useTypingEffect(
     message.content,
-    shouldType,
+    enableTyping,
     45,
   );
+
+  // For streaming messages, use the content directly (already incrementally updated)
+  const shownText = isStreaming ? message.content : displayedText;
+  const showCursor = isStreaming || isTyping;
 
   const result = message.result;
 
   useEffect(() => {
-    if (isTyping) {
+    if (isTyping || isStreaming) {
       onScrollRequest();
     }
-  }, [displayedText, isTyping, onScrollRequest]);
+  }, [displayedText, message.content, isTyping, isStreaming, onScrollRequest]);
 
   useEffect(() => {
-    if (!isTyping && shouldType) {
+    if (!isTyping && shouldType && !isStreaming) {
       onTypingComplete();
     }
-  }, [isTyping, shouldType, onTypingComplete]);
+  }, [isTyping, shouldType, isStreaming, onTypingComplete]);
 
   return (
     <div className="message-fade-in mb-6 flex gap-3">
@@ -1033,20 +1140,20 @@ function AssistantMessage({
         {/* Answer */}
         <div
           className="cursor-default rounded-2xl rounded-tl-sm border border-border bg-surface-raised p-5 shadow-soft"
-          onClick={isTyping ? skip : undefined}
+          onClick={isTyping && !isStreaming ? skip : undefined}
         >
           <MarkdownRenderer
-            content={displayedText}
+            content={shownText}
             citations={result?.citations}
             onCitationClick={onCitationClick}
           />
-          {isTyping && (
+          {showCursor && (
             <span className="typing-cursor ml-0.5 inline-block h-4 w-[2px] translate-y-[3px] bg-prism-500" />
           )}
         </div>
 
         {/* Diagnostics */}
-        {!isTyping && result && (
+        {!showCursor && result && (
           <div className="flex flex-wrap gap-1.5">
             <Badge
               color={
@@ -1076,7 +1183,7 @@ function AssistantMessage({
         )}
 
         {/* Tradeoffs */}
-        {!isTyping && result && result.tradeoffs.length > 0 && (
+        {!showCursor && result && result.tradeoffs.length > 0 && (
           <div className="rounded-xl border border-border bg-surface p-4">
             <p className="mb-3 text-[10px] font-semibold uppercase tracking-[1px] text-tx-tertiary">
               Tradeoffs
@@ -1110,7 +1217,7 @@ function AssistantMessage({
         )}
 
         {/* Follow-ups */}
-        {!isTyping &&
+        {!showCursor &&
           isLast &&
           result &&
           result.followUpQuestions.length > 0 && (
@@ -1128,7 +1235,7 @@ function AssistantMessage({
           )}
 
         {/* Sources */}
-        {!isTyping && result && result.citations.length > 0 && (
+        {!showCursor && result && result.citations.length > 0 && (
           <SourcesPanel
             citations={result.citations}
             activeCitationId={activeCitationId}

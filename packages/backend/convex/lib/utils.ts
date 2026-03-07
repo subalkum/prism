@@ -145,6 +145,8 @@ export function bigrams(tokens: string[]): string[] {
 // ---------------------------------------------------------------------------
 
 export const PRICING_PER_1K_TOKENS: Record<string, number> = {
+  // OpenAI
+  "gpt-4.1-mini": 0.001,
   // Gemini
   "gemini-2.0-flash": 0.002,
   "gemini-2.5-pro-preview-05-06": 0.01,
@@ -157,7 +159,37 @@ export const PRICING_PER_1K_TOKENS: Record<string, number> = {
 /** Default fallback price per 1K tokens */
 const DEFAULT_PRICE_PER_1K = 0.004;
 
-export function estimateCost(model: string, totalTokens: number): number {
+const OPENAI_INPUT_PRICE_PER_1K: Record<string, number> = {
+  "gpt-4.1": 0.002,
+  "gpt-4.1-mini": 0.0004,
+};
+
+const OPENAI_OUTPUT_PRICE_PER_1K: Record<string, number> = {
+  "gpt-4.1": 0.008,
+  "gpt-4.1-mini": 0.0016,
+};
+
+export function estimateCost(
+  model: string,
+  totalTokens: number,
+  promptTokens?: number,
+  completionTokens?: number,
+): number {
+  const openAiInputPrice = OPENAI_INPUT_PRICE_PER_1K[model];
+  const openAiOutputPrice = OPENAI_OUTPUT_PRICE_PER_1K[model];
+
+  if (
+    openAiInputPrice !== undefined &&
+    openAiOutputPrice !== undefined &&
+    promptTokens !== undefined &&
+    completionTokens !== undefined
+  ) {
+    const exactCost =
+      (promptTokens / 1000) * openAiInputPrice +
+      (completionTokens / 1000) * openAiOutputPrice;
+    return Number(exactCost.toFixed(6));
+  }
+
   const unitPrice = PRICING_PER_1K_TOKENS[model] ?? DEFAULT_PRICE_PER_1K;
   return Number(((totalTokens / 1000) * unitPrice).toFixed(6));
 }

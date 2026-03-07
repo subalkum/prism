@@ -23,8 +23,8 @@ type LoadingStep = "retrieving" | "analyzing" | "generating" | null;
 
 const STORAGE_KEY = "prism-session-id";
 
-export function ResearchChat() {
-  const [userId, setUserId] = useState("demo-user");
+export function ResearchChat({ userId: initialUserId }: { userId?: string } = {}) {
+  const [userId, setUserId] = useState(initialUserId ?? "demo-user");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ResearchMode>("quick");
   const [sessionId, setSessionId] = useState<string | undefined>(() => {
