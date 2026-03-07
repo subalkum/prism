@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import { Show, UserButton } from "@clerk/nextjs";
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const hasClerkPublishableKey = Boolean(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  );
 
   useEffect(() => {
     const handleScroll = () => {
@@ -80,36 +83,45 @@ export function Header() {
 
         {/* CTAs */}
         <div className="hidden items-center gap-3 md:flex">
-        <a
+          <a
             href="#about"
             className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-surface px-6 py-2.5 text-sm font-medium text-tx shadow-button-light transition-all duration-500 active:scale-95"
           >
             <span className="absolute inset-0 rounded-full bg-linear-to-r from-prism-300 via-prism-100 to-warm-200 opacity-0 shadow-[inset_0_0_12px_2px_rgba(255,255,255,0.8)] transition-opacity duration-700 group-hover:opacity-100" />
             <span className="relative z-10">Learn More</span>
           </a>
-          <Show when="signed-out">
-
+          {hasClerkPublishableKey ? (
+            <>
+              <Show when="signed-out">
+                <Link
+                  href="/sign-in"
+                  className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
+                >
+                  <span className="absolute inset-0 rounded-full bg-linear-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
+                  <span className="relative z-10">Try Prism</span>
+                </Link>
+              </Show>
+              <Show when="signed-in">
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-10 h-10",
+                      userButtonPopoverCard: "shadow-xl",
+                      userPreviewMainIdentifier: "font-bold",
+                    },
+                  }}
+                />
+              </Show>
+            </>
+          ) : (
             <Link
-            href="/sign-in"
-            className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
-          >
-            <span className="absolute inset-0 rounded-full bg-linear-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
-            <span className="relative z-10">Try Prism</span>
-          </Link>
-
-          </Show>
-          <Show when="signed-in">
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10",
-                  userButtonPopoverCard: "shadow-xl",
-                  userPreviewMainIdentifier: "font-bold",
-                },
-              }}
-            />
-          </Show>
-        
+              href="/demo"
+              className="group relative inline-flex cursor-pointer items-center justify-center overflow-hidden rounded-full bg-[#131313] px-6 py-2.5 text-sm font-medium text-white shadow-button-dark transition-all duration-500 active:scale-95"
+            >
+              <span className="absolute inset-0 rounded-full bg-linear-to-r from-[#131313] via-prism-700 to-warm-400 opacity-0 shadow-[inset_0px_0px_12px_2px_rgba(255,255,255,0.4)] transition-opacity duration-700 group-hover:opacity-100" />
+              <span className="relative z-10">Try Demo</span>
+            </Link>
+          )}
         </div>
 
         {/* Mobile hamburger */}

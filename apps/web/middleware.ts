@@ -1,6 +1,10 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+const hasClerkKeys =
+  Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) &&
+  Boolean(process.env.CLERK_SECRET_KEY);
+
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/chat",
@@ -16,20 +20,24 @@ const isPublicRoute = createRouteMatcher([
   "/api/sessions(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  // Let public routes through without any Clerk checks
-  if (isPublicRoute(req)) {
-    return NextResponse.next();
-  }
+const middleware = hasClerkKeys
+  ? clerkMiddleware(async (auth, req) => {
+      // Let public routes through without any Clerk checks
+      if (isPublicRoute(req)) {
+        return NextResponse.next();
+      }
 
-  const { userId, redirectToSignIn } = await auth();
+      const { userId, redirectToSignIn } = await auth();
 
-  if (!userId && isProtectedRoute(req)) {
-    return redirectToSignIn();
-  }
+      if (!userId && isProtectedRoute(req)) {
+        return redirectToSignIn();
+      }
 
-  return NextResponse.next();
-});
+      return NextResponse.next();
+    })
+  : () => NextResponse.next();
+
+export default middleware;
 
 export const config = {
   matcher: [
