@@ -453,6 +453,35 @@ If you deploy without Clerk configured, middleware falls back to pass-through mo
 
 ---
 
+## Unit Economics
+
+Prism already records `estimatedCostUsd` per response, so cost can be tracked per query, per session, or per user.
+
+Current model pricing in code:
+
+- `gemini-2.0-flash`: `$0.002 / 1K tokens`
+- `gpt-4.1`: `$0.002 / 1K input tokens` and `$0.008 / 1K output tokens`
+- `gpt-4.1-mini`: `$0.0004 / 1K input tokens` and `$0.0016 / 1K output tokens`
+- `llama-3.3-70b-versatile` (Groq): `$0.002 / 1K tokens`
+- `llama-3.3-70b` (Cerebras): `$0.0015 / 1K tokens`
+
+Rough request economics:
+
+- Quick query: usually low single-digit cents or below. A `2K-3K` token quick request on Gemini or Groq is roughly `$0.004-$0.006`.
+- Deep query: materially more expensive because it uses `gpt-4.1` as primary. A request with `6K` input tokens and `2K` output tokens is about `$0.028`.
+- Heavy user example: `100` quick queries and `20` deep queries in a month is roughly `$1.00-$1.20` in model cost before infra, storage, and auth costs.
+
+Business model sketch:
+
+- Free/demo tier: limited quick queries, capped history, no team features.
+- Pro tier: generous quick usage plus a monthly deep-research quota.
+- Team tier: per-seat pricing with shared workspaces, analytics, and higher usage limits.
+- Usage-based overage: bill extra deep queries or token-heavy workloads beyond plan limits.
+
+The important point is that the core AI cost is low enough to support a SaaS margin, especially if deep mode is quota-limited and quick mode is the default path.
+
+---
+
 <p align="center">
   Built with Convex, Next.js, and too much ☕.
 </p>
