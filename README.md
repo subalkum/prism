@@ -47,8 +47,8 @@ It supports two research modes:
 
 | Mode | Target Latency | RAG Chunks | Max Tokens | Use Case |
 |------|---------------|------------|------------|----------|
-| **Quick** | < 2 min | Top 4 | 1,500 | Fast, focused synthesis |
-| **Deep** | < 10 min | Top 8 | 4,096 | Thorough structured analysis with sections |
+| **Quick** | < 2 min | Top 4 | 1,500 | Fast, focused synthesis via Gemini with Groq/Cerebras fallback |
+| **Deep** | < 10 min | Top 8 | 4,096 | Thorough structured analysis via OpenAI with Gemini/Groq/Cerebras fallback |
 
 ---
 
@@ -75,9 +75,10 @@ graph TB
     end
 
     subgraph LLMs["LLM Providers"]
-        Gemini["Gemini<br/>(Primary)"]
-        Groq["Groq<br/>(Fallback 1)"]
-        Cerebras["Cerebras<br/>(Fallback 2)"]
+        Gemini["Gemini<br/>(Quick Primary)"]
+        OpenAI["OpenAI<br/>(Deep Primary)"]
+        Groq["Groq<br/>(Fallback)"]
+        Cerebras["Cerebras<br/>(Fallback)"]
     end
 
     UI -->|"User Query"| API
@@ -89,9 +90,10 @@ graph TB
     RAG --> DB
     Memory --> DB
     Metrics --> DB
-    Agent -->|"Fallback Chain"| Gemini
-    Agent -->|"If Gemini fails"| Groq
-    Agent -->|"If Groq fails"| Cerebras
+    Agent -->|"Quick mode"| Gemini
+    Agent -->|"Deep mode"| OpenAI
+    Agent -->|"Fallback"| Groq
+    Agent -->|"Fallback"| Cerebras
     Agent -->|"Structured Response"| API
     API -->|"JSON"| UI
 
@@ -204,20 +206,24 @@ graph LR
 graph TD
     Start["Incoming Request"] --> Mode{"Research Mode?"}
 
-    Mode -->|Quick| QModel["gemini-2.0-flash"]
-    Mode -->|Deep| DModel["gemini-2.5-pro-preview"]
+    Mode -->|Quick| Q1["Call Gemini<br/>gemini-2.0-flash"]
+    Mode -->|Deep| D1["Call OpenAI<br/>gpt-4.1"]
 
-    QModel --> Call1["Call Gemini"]
-    DModel --> Call1
+    Q1 -->|Success| Done["Return Response"]
+    Q1 -->|Failure| Q2["Call Groq<br/>llama-3.3-70b-versatile"]
+    Q2 -->|Success| Done
+    Q2 -->|Failure| Q3["Call Cerebras<br/>llama-3.3-70b"]
+    Q3 -->|Success| Done
+    Q3 -->|Failure| RAGFallback["Deterministic RAG-Only<br/>Fallback Response"]
 
-    Call1 -->|Success| Done["Return Response"]
-    Call1 -->|Failure| Call2["Call Groq<br/>llama-3.3-70b-versatile"]
-
-    Call2 -->|Success| Done
-    Call2 -->|Failure| Call3["Call Cerebras<br/>llama-3.3-70b"]
-
-    Call3 -->|Success| Done
-    Call3 -->|Failure| RAGFallback["Deterministic RAG-Only<br/>Fallback Response"]
+    D1 -->|Success| Done
+    D1 -->|Failure| D2["Call Gemini<br/>gemini-2.5-pro-preview-05-06"]
+    D2 -->|Success| Done
+    D2 -->|Failure| D3["Call Groq<br/>llama-3.3-70b-versatile"]
+    D3 -->|Success| Done
+    D3 -->|Failure| D4["Call Cerebras<br/>llama-3.3-70b"]
+    D4 -->|Success| Done
+    D4 -->|Failure| RAGFallback
 
     RAGFallback --> Done
 
@@ -235,7 +241,7 @@ graph TD
 | **Frontend** | Next.js 15 (App Router) | React 19, TypeScript 5.7 |
 | **Styling** | Tailwind CSS 4.2 | Glassmorphism, gradient text, scroll-reveal animations |
 | **Backend** | Convex 1.20+ | Serverless reactive database + Node.js actions |
-| **AI / LLMs** | Multi-provider fallback | Gemini (primary) -> Groq -> Cerebras |
+| **AI / LLMs** | Multi-provider fallback | Quick: Gemini -> Groq -> Cerebras. Deep: OpenAI -> Gemini -> Groq -> Cerebras |
 | **RAG** | Custom in-Convex pipeline | BM25-inspired hybrid retrieval, no external vector DB |
 | **Validation** | Zod 3.24 | Shared request/response contracts with runtime safety |
 | **Markdown** | react-markdown 10.1 | Custom renderers with inline citation badges |
@@ -247,8 +253,8 @@ graph TD
 ## Features
 
 ### Research Engine
-- **Dual modes** -- Quick (< 2 min) and Deep (< 10 min) research with mode-specific models and token budgets
-- **Multi-model fallback** -- Gemini -> Groq -> Cerebras with automatic failover; deterministic RAG-only fallback if all providers fail
+- **Dual modes** -- Quick (< 2 min) and Deep (< 10 min) research with mode-specific models, routing, and token budgets
+- **Mode-aware fallback** -- Quick uses Gemini -> Groq -> Cerebras, while Deep uses OpenAI -> Gemini -> Groq -> Cerebras before deterministic RAG-only fallback
 - **Ambiguity detection** -- Short or vague queries trigger clarification instead of a bad answer
 - **Structured output parsing** -- Follow-up questions, tradeoff analysis (pros/cons), and LLM self-assessed confidence extracted from every response
 
@@ -282,6 +288,7 @@ Multi-signal weighted score (clamped to 0.10--0.95):
 - **Diagnostic badges** showing status, confidence %, latency, cost, provider/model
 - **Loading step simulation** (retrieving -> analyzing -> generating)
 - **Glassmorphism design** with gradient blobs, scroll-reveal animations, and `prefers-reduced-motion` support
+- **Auth-optional landing flow** -- If Clerk keys are missing, the app still renders and routes users to `/demo` instead of blocking the deployment
 
 ### Safety & Guardrails
 - **Zod validation** on every response -- invalid outputs trigger a safe fallback with `status: "fallback"` and confidence 0.15
@@ -322,7 +329,7 @@ prism/
 │   │       │   ├── researchAgent.ts  # Main orchestrator action
 │   │       │   └── researchDb.ts     # Data queries + persistence
 │   │       ├── llm/
-│   │       │   └── providers.ts      # Gemini/Groq/Cerebras clients
+│   │       │   └── providers.ts      # OpenAI/Gemini/Groq/Cerebras clients + routing
 │   │       ├── rag/
 │   │       │   ├── ingest.ts         # Document ingestion pipeline
 │   │       │   └── retrieve.ts       # BM25-inspired hybrid retrieval
@@ -351,7 +358,8 @@ prism/
 - **Node.js** >= 18
 - **pnpm** >= 10.6
 - A [Convex](https://convex.dev) account (free tier works)
-- At least one LLM API key (Gemini, Groq, or Cerebras)
+- At least one LLM API key
+- For full mode coverage: `OPENAI_API_KEY` for deep mode and `GEMINI_API_KEY` for quick mode
 
 ### 1. Clone and install
 
@@ -366,6 +374,9 @@ pnpm install
 **Frontend** (`apps/web/.env.local`):
 ```env
 NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+
+# Optional: enable Clerk auth UI/routes
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your-clerk-publishable-key
 ```
 
 **Backend** (set in Convex dashboard or `.env`):
@@ -375,7 +386,12 @@ OPENAI_API_KEY=your-openai-key      # primary for deep research
 GEMINI_API_KEY=your-gemini-key      # primary for quick research, deep fallback
 GROQ_API_KEY=your-groq-key          # optional fallback
 CEREBRAS_API_KEY=your-cerebras-key   # optional fallback
+
+# Optional: only needed when enabling Clerk-protected routes
+CLERK_SECRET_KEY=your-clerk-secret-key
 ```
+
+If Clerk keys are omitted, Prism still runs in demo mode. The landing page stays available, sign-in/sign-up pages show a helpful fallback state, and the header routes users to `/demo`.
 
 ### 3. Start development servers
 
@@ -401,6 +417,7 @@ Open [http://localhost:3000](http://localhost:3000) and start researching.
 # Vercel auto-detects Next.js
 # Set these in Vercel dashboard:
 #   NEXT_PUBLIC_CONVEX_URL = your production Convex URL
+#   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = optional, only if auth is enabled
 #
 # Build command (auto):  pnpm --filter @ai/web build
 # Install command:       pnpm install --frozen-lockfile=false
@@ -414,9 +431,12 @@ pnpm --filter @ai/backend deploy
 
 # Set environment variables in Convex dashboard:
 #   OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
+#   CLERK_SECRET_KEY (optional, only if auth is enabled)
 ```
 
 **Deployment order:** Convex backend first, then Vercel frontend.
+
+If you deploy without Clerk configured, middleware falls back to pass-through mode so public/demo flows continue to work.
 
 ---
 
