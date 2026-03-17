@@ -16,7 +16,7 @@ try prism : https://prism-gamma-two.vercel.app/
 
 <p align="center">
   Think Perplexity, but self-hosted, extensible, and built on a modern serverless stack.<br/>
-  Ask a question. Get a grounded, cited, confidence-scored answer in under 2 minutes.
+  Ask a question. Get a grounded, cited, confidence-scored answer in under 1 minutes.
 </p>
 
 ---
