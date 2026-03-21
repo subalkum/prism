@@ -8,7 +8,7 @@
 </p>
 
 try prism : https://prism-gamma-two.vercel.app/
-<h1 align="center">Prism.AI</h1>
+<h1 align="center">Prism.AI </h1>
 
 <p align="center">
   <strong>AI-powered technical research agent with RAG, multi-model fallback, and persistent memory.</strong>
